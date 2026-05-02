@@ -3,7 +3,7 @@
 // ==========================================
 const ADMIN_ID = 372708944;          // Твой реальный VK ID
 const APP_ID = 54575499;              // ID мини-приложения VK
-const API_URL = 'https://script.google.com/macros/s/AKfycbweogVun2KupPEbuq7WLZpQa0gUIwbrMKlIpNF-PvycDVLubHNaNHIubGyBL4Ans_uM4A/exec'; // Твой URL веб-приложения Google Apps Script
+const API_URL = 'https://script.google.com/macros/s/AKfycbweogVun2KupPEbuq7WLZpQa0gUIwbrMKlIpNF-PvycDVLubHNaNHIubGyBL4Ans_uM4A/exec'; // Твой URL
 
 // ==========================================
 // ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
@@ -12,8 +12,10 @@ let currentUser = null;
 let isAdmin = false;
 let requests = [];
 let currentTab = 'active';
-let selectedRequestId = null; // ID заявки для детального просмотра
+let selectedRequestId = null;
+let searchQuery = '';                // строка поиска
 
+// DOM-элементы
 const loadingEl = document.getElementById('loading');
 const userPanel = document.getElementById('userPanel');
 const adminPanel = document.getElementById('adminPanel');
@@ -27,13 +29,15 @@ const tabDone = document.getElementById('tabDone');
 const fileInput = document.getElementById('fileInput');
 const fileInfo = document.getElementById('fileInfo');
 
+// Таймер автообновления
+let autoRefreshInterval = null;
+
 // ==========================================
 // ИНИЦИАЛИЗАЦИЯ
 // ==========================================
 async function init() {
   console.log('1. init стартовал');
 
-  // Обязательная инициализация для VK Mini App
   if (typeof vkBridge !== 'undefined') {
     try {
       await vkBridge.send('VKWebAppInit');
@@ -43,25 +47,20 @@ async function init() {
     }
   }
 
-  // Получаем данные пользователя (с таймаутом для браузера)
   if (typeof vkBridge === 'undefined') {
-    console.warn('vkBridge не найден – работаем с тестовым пользователем');
+    console.warn('vkBridge не найден – тестовый пользователь');
     currentUser = { id: 0, first_name: 'Тест', last_name: 'Тестов' };
     isAdmin = false;
   } else {
-    console.log('2. vkBridge найден, вызываю getUserInfo с таймаутом 3 сек');
+    console.log('2. вызываю getUserInfo с таймаутом');
     try {
       const user = await Promise.race([
         vkBridge.send('VKWebAppGetUserInfo'),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Таймаут VK Bridge')), 3000))
       ]);
-      console.log('3. пользователь получен:', user);
-      currentUser = {
-        id: user.id,
-        first_name: user.first_name,
-        last_name: user.last_name
-      };
+      currentUser = { id: user.id, first_name: user.first_name, last_name: user.last_name };
       isAdmin = (currentUser.id === ADMIN_ID);
+      console.log('3. пользователь получен:', currentUser);
     } catch (e) {
       console.error('4. ошибка получения пользователя:', e);
       currentUser = { id: 0, first_name: 'Гость', last_name: '' };
@@ -71,7 +70,7 @@ async function init() {
 
   console.log('5. загружаю заявки с сервера...');
   await loadRequestsFromServer();
-  console.log('6. скрываю loading, показываю интерфейс');
+  console.log('6. скрываю loading');
   loadingEl.classList.add('hidden');
 
   if (isAdmin) {
@@ -88,11 +87,14 @@ async function init() {
   requestForm.addEventListener('submit', handleFormSubmit);
   tabActive.addEventListener('click', () => switchAdminTab('active'));
   tabDone.addEventListener('click', () => switchAdminTab('done'));
+
+  // Запускаем автообновление каждые 10 секунд
+  startAutoRefresh();
   console.log('7. готово');
 }
 
 // ==========================================
-// ВЗАИМОДЕЙСТВИЕ С СЕРВЕРОМ (Google Sheets)
+// ВЗАИМОДЕЙСТВИЕ С СЕРВЕРОМ
 // ==========================================
 async function loadRequestsFromServer() {
   try {
@@ -115,9 +117,11 @@ async function createRequestOnServer(newRequest) {
     const result = await response.json();
     if (!result.success) throw new Error('Сервер вернул ошибку');
     console.log('Заявка создана, ID:', result.id);
+    return result.id;
   } catch (e) {
     console.error('Ошибка при создании заявки:', e);
     alert('Не удалось отправить заявку. Проверьте соединение.');
+    return null;
   }
 }
 
@@ -131,11 +135,35 @@ async function updateStatusOnServer(requestId, newStatus) {
     const result = await response.json();
     if (!result.success) throw new Error('Сервер вернул ошибку');
     console.log('Статус обновлён');
+    return true;
   } catch (e) {
     console.error('Ошибка при обновлении статуса:', e);
     alert('Не удалось обновить статус.');
+    return false;
   }
 }
+
+// ==========================================
+// АВТООБНОВЛЕНИЕ (опрос сервера)
+// ==========================================
+function startAutoRefresh() {
+  if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+  autoRefreshInterval = setInterval(async () => {
+    // Не обновляем, если пользователь сейчас заполняет форму или открыта детальная карточка? 
+    // Лучше обновлять в любом случае, но не сбрасывать интерфейс.
+    await loadRequestsFromServer();
+    if (isAdmin) {
+      renderAdminPanel();
+    } else {
+      renderMyRequests();
+    }
+  }, 10000); // каждые 10 секунд
+}
+
+// Остановка автообновления при закрытии (не обязательно, но хорошо бы)
+window.addEventListener('beforeunload', () => {
+  if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+});
 
 // ==========================================
 // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -160,8 +188,9 @@ function fileToBase64(file) {
   });
 }
 
-// Скачивание файла по base64-строке
+// Надёжное скачивание файла
 function downloadFile(base64Data, fileName) {
+  // Создаём ссылку, указываем download, имитируем клик
   const link = document.createElement('a');
   link.href = base64Data;
   link.download = fileName;
@@ -222,37 +251,59 @@ async function handleFormSubmit(e) {
   submitBtn.textContent = 'Отправка...';
   submitBtn.disabled = true;
 
-  await createRequestOnServer(newRequest);
+  const serverId = await createRequestOnServer(newRequest);
+  if (serverId) {
+    newRequest.id = serverId;
+    requests.push(newRequest);
+    selectedRequestId = null;
+    if (isAdmin) {
+      renderAdminPanel();
+    } else {
+      renderMyRequests();
+    }
+    alert('Заявка успешно отправлена!');
+  }
 
   submitBtn.textContent = originalText;
   submitBtn.disabled = false;
-
   requestForm.reset();
   fileInfo.textContent = '';
   datetimeBlock.classList.add('hidden');
+}
 
-  // Локально добавляем заявку без перезагрузки всего списка
-  newRequest.id = Date.now();
-  requests.push(newRequest);
-  selectedRequestId = null; // сбрасываем детальный просмотр
+// ==========================================
+// ПОИСК И ФИЛЬТРАЦИЯ
+// ==========================================
+function filterRequests(list) {
+  if (!searchQuery.trim()) return list;
+  const q = searchQuery.toLowerCase();
+  return list.filter(r => {
+    return (
+      (r.userName && r.userName.toLowerCase().includes(q)) ||
+      (r.subdivision && r.subdivision.toLowerCase().includes(q)) ||
+      (r.description && r.description.toLowerCase().includes(q)) ||
+      (r.type && (r.type === 'support' ? 'тех сопровождение' : 'тех обслуживание').includes(q))
+    );
+  });
+}
+
+// Обработчик ввода поиска
+function onSearchInput(e) {
+  searchQuery = e.target.value;
   if (isAdmin) {
     renderAdminPanel();
   } else {
     renderMyRequests();
   }
-  alert('Заявка успешно отправлена!');
 }
 
 // ==========================================
 // ОТОБРАЖЕНИЕ (список + детали)
 // ==========================================
-
-// Получение объекта заявки по ID
 function getRequestById(id) {
   return requests.find(r => r.id == id);
 }
 
-// Показать детальную информацию о заявке
 function showRequestDetail(id) {
   selectedRequestId = id;
   if (isAdmin) {
@@ -262,7 +313,6 @@ function showRequestDetail(id) {
   }
 }
 
-// Вернуться к списку
 function hideRequestDetail() {
   selectedRequestId = null;
   if (isAdmin) {
@@ -272,7 +322,7 @@ function hideRequestDetail() {
   }
 }
 
-// Рендер одной строки в списке (краткий вид)
+// Краткая карточка для списка
 function renderRequestListItem(req) {
   const typeName = req.type === 'support' ? 'Тех.сопровождение' : 'Тех.обслуживание';
   const created = new Date(req.createdAt).toLocaleString('ru-RU');
@@ -301,7 +351,7 @@ function renderRequestListItem(req) {
   `;
 }
 
-// Рендер детальной карточки заявки
+// Детальная карточка
 function renderRequestDetail(req, showAdminControls = false) {
   const statusMap = {
     pending: 'В ожидании',
@@ -322,16 +372,13 @@ function renderRequestDetail(req, showAdminControls = false) {
   if (req.file) {
     let fileObj = req.file;
     if (typeof fileObj === 'string') {
-      try {
-        fileObj = JSON.parse(fileObj);
-      } catch (e) {
-        fileObj = null;
-      }
+      try { fileObj = JSON.parse(fileObj); } catch (e) { fileObj = null; }
     }
     if (fileObj && fileObj.name) {
       fileHtml = `<p><strong>Файл:</strong> ${fileObj.name}</p>`;
       if (fileObj.data) {
-        fileDownloadBtn = `<button onclick="downloadFile('${fileObj.data}', '${fileObj.name}')" style="margin-top:4px; background:#4bb34b;">Скачать файл</button>`;
+        // Используем onclick с вызовом downloadFile, передавая данные в кавычках
+        fileDownloadBtn = `<button onclick="downloadFile('${fileObj.data.replace(/'/g, "\\'")}', '${fileObj.name.replace(/'/g, "\\'")}')" style="margin-top:4px; background:#4bb34b;">Скачать файл</button>`;
       }
     }
   }
@@ -362,9 +409,10 @@ function renderRequestDetail(req, showAdminControls = false) {
   `;
 }
 
-// Пользовательский список
+// ==========================================
+// РЕНДЕР СПИСКОВ С ПОИСКОМ
+// ==========================================
 function renderMyRequests() {
-  // Если выбран детальный просмотр, показываем его
   if (selectedRequestId) {
     const req = getRequestById(selectedRequestId);
     if (req) {
@@ -373,22 +421,57 @@ function renderMyRequests() {
     }
   }
 
-  // Иначе показываем список
   const myReqs = requests.filter(r => r.userId == currentUser.id);
-  if (myReqs.length === 0) {
-    myRequestsList.innerHTML = '<p>У вас пока нет заявок.</p>';
-    return;
+  const filtered = filterRequests(myReqs);
+  
+  let html = '';
+  // Поле поиска
+  html += `<input type="text" placeholder="Поиск по заявкам..." value="${searchQuery}" oninput="onSearchInput(event)" style="margin-bottom:8px;">`;
+  
+  if (filtered.length === 0) {
+    html += '<p>Заявок не найдено.</p>';
+  } else {
+    html += filtered
+      .sort((a, b) => b.id - a.id)
+      .map(req => renderRequestListItem(req))
+      .join('');
   }
-  myRequestsList.innerHTML = myReqs
-    .sort((a, b) => b.id - a.id)
-    .map(req => renderRequestListItem(req))
-    .join('');
+  myRequestsList.innerHTML = html;
 }
 
-// Админ-панель
+function renderAdminPanel() {
+  if (selectedRequestId) {
+    const req = getRequestById(selectedRequestId);
+    if (req) {
+      adminRequestsList.innerHTML = renderRequestDetail(req, true);
+      return;
+    }
+  }
+
+  const baseList = currentTab === 'active'
+    ? requests.filter(r => r.status !== 'done')
+    : requests.filter(r => r.status === 'done');
+  const filtered = filterRequests(baseList);
+
+  let html = '';
+  // Поле поиска
+  html += `<input type="text" placeholder="Поиск по заявкам..." value="${searchQuery}" oninput="onSearchInput(event)" style="margin-bottom:8px;">`;
+
+  if (filtered.length === 0) {
+    html += '<p>Заявок нет.</p>';
+  } else {
+    html += filtered
+      .sort((a, b) => b.id - a.id)
+      .map(req => renderRequestListItem(req))
+      .join('');
+  }
+  adminRequestsList.innerHTML = html;
+}
+
 function switchAdminTab(tab) {
   currentTab = tab;
-  selectedRequestId = null; // сбрасываем детальный просмотр при смене вкладки
+  selectedRequestId = null;
+  searchQuery = ''; // сбрасываем поиск при смене вкладки
   document.querySelectorAll('.tabs button').forEach(btn => btn.classList.remove('active'));
   if (tab === 'active') {
     tabActive.classList.add('active');
@@ -398,42 +481,14 @@ function switchAdminTab(tab) {
   renderAdminPanel();
 }
 
-function renderAdminPanel() {
-  // Если выбран детальный просмотр, показываем его
-  if (selectedRequestId) {
-    const req = getRequestById(selectedRequestId);
-    if (req) {
-      adminRequestsList.innerHTML = renderRequestDetail(req, true);
-      return;
-    }
-  }
-
-  // Иначе показываем список
-  const filtered = currentTab === 'active'
-    ? requests.filter(r => r.status !== 'done')
-    : requests.filter(r => r.status === 'done');
-
-  if (filtered.length === 0) {
-    adminRequestsList.innerHTML = '<p>Заявок нет.</p>';
-    return;
-  }
-  adminRequestsList.innerHTML = filtered
-    .sort((a, b) => b.id - a.id)
-    .map(req => renderRequestListItem(req))
-    .join('');
-}
-
-// Смена статуса
 async function changeStatus(requestId, newStatus) {
   if (!isAdmin) return;
-  await updateStatusOnServer(requestId, newStatus);
-  await loadRequestsFromServer();
-  selectedRequestId = null; // после обновления возвращаемся к списку
-  renderAdminPanel();
-  if (!isAdmin && currentUser) {
-    renderMyRequests();
+  const success = await updateStatusOnServer(requestId, newStatus);
+  if (success) {
+    await loadRequestsFromServer();
+    selectedRequestId = null;
+    renderAdminPanel();
   }
 }
 
-// Старт
 document.addEventListener('DOMContentLoaded', init);
