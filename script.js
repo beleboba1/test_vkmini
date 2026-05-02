@@ -41,7 +41,7 @@ async function init() {
       console.error('Ошибка VKWebAppInit:', e);
     }
   }
-
+  
   // Получаем пользователя
   if (typeof vkBridge === 'undefined') {
     console.warn('vkBridge не найден – работаем с тестовым пользователем');
