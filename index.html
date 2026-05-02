@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Заявки</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- VK Bridge -->
+  <script src="https://unpkg.com/@vkontakte/vk-bridge/dist/browser.min.js"></script>
+</head>
+<body>
+  <div id="app" class="container">
+    <div id="loading">Загрузка...</div>
+
+    <!-- Пользовательская панель -->
+    <div id="userPanel" class="hidden">
+      <div class="panel">
+        <h2>Новая заявка</h2>
+        <form id="requestForm">
+          <label>
+            Тип заявки
+            <select id="typeSelect">
+              <option value="maintenance">Техническое обслуживание</option>
+              <option value="support">Техническое сопровождение</option>
+            </select>
+          </label>
+
+          <label>
+            Подразделение
+            <input type="text" id="subdivision" placeholder="Например: ЦИТ" required>
+          </label>
+
+          <label>
+            Описание
+            <textarea id="description" rows="3" placeholder="Опишите задачу" required></textarea>
+          </label>
+
+          <div id="datetimeBlock" class="hidden">
+            <label>
+              Дата и время
+              <input type="datetime-local" id="datetime">
+            </label>
+          </div>
+
+          <label>
+            Файл (опционально)
+            <input type="file" id="fileInput" accept="image/*,.pdf,.doc,.docx">
+          </label>
+          <div id="fileInfo" class="file-info"></div>
+
+          <button type="submit">Отправить заявку</button>
+        </form>
+      </div>
+
+      <div class="panel">
+        <h2>Мои заявки</h2>
+        <div id="myRequestsList"></div>
+      </div>
+    </div>
+
+    <!-- Админ-панель -->
+    <div id="adminPanel" class="hidden">
+      <div class="panel">
+        <h2>Админ-панель</h2>
+        <div class="tabs">
+          <button id="tabActive" class="active">Активные</button>
+          <button id="tabDone">Выполненные</button>
+        </div>
+        <div id="adminRequestsList"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
