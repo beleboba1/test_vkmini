@@ -41,7 +41,7 @@ async function init() {
       console.error('Ошибка VKWebAppInit:', e);
     }
   }
-  
+
   // Получаем пользователя
   if (typeof vkBridge === 'undefined') {
     console.warn('vkBridge не найден – работаем с тестовым пользователем');
@@ -181,6 +181,12 @@ async function handleFormSubmit(e) {
   let fileName = null;
   const file = fileInput.files[0];
   if (file) {
+    // Ограничение на размер файла (5 МБ)
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      alert('Файл слишком большой. Максимальный размер: 5 МБ.');
+      return;
+    }
     try {
       fileData = await fileToBase64(file);
       fileName = file.name;
@@ -202,15 +208,30 @@ async function handleFormSubmit(e) {
     createdAt: new Date().toISOString()
   };
 
-  await createRequestOnServer(newRequest);
-  await loadRequestsFromServer();
+  // Показываем индикатор на кнопке
+  const submitBtn = requestForm.querySelector('button[type="submit"]');
+  const originalText = submitBtn.textContent;
+  submitBtn.textContent = 'Отправка...';
+  submitBtn.disabled = true;
 
+  await createRequestOnServer(newRequest);
+
+  // Восстанавливаем кнопку
+  submitBtn.textContent = originalText;
+  submitBtn.disabled = false;
+
+  // Очищаем форму
   requestForm.reset();
   fileInfo.textContent = '';
   datetimeBlock.classList.add('hidden');
-  alert('Заявка успешно отправлена!');
+
+  // Локально добавляем заявку в список (без лишней загрузки с сервера)
+  newRequest.id = Date.now(); // временный ID, при перезагрузке страницы заменится реальным
+  requests.push(newRequest);
   renderMyRequests();
   if (isAdmin) renderAdminPanel();
+
+  alert('Заявка успешно отправлена!');
 }
 
 // ==========================================
@@ -242,18 +263,27 @@ function renderRequestCard(req, showAdminControls = false) {
   const typeName = req.type === 'support' ? 'Тех.сопровождение' : 'Тех.обслуживание';
   const created = new Date(req.createdAt).toLocaleString('ru-RU');
   let fileHtml = '';
+  let fileOpenBtn = '';
+
   if (req.file) {
-    // file – это строка JSON, её нужно распарсить
     let fileObj = req.file;
+    // Парсим, если это строка JSON
     if (typeof fileObj === 'string') {
       try {
         fileObj = JSON.parse(fileObj);
-      } catch (e) {}
+      } catch (e) {
+        fileObj = null;
+      }
     }
     if (fileObj && fileObj.name) {
       fileHtml = `<p><strong>Файл:</strong> ${fileObj.name}</p>`;
+      // Кнопка открытия файла (открывает в новой вкладке)
+      if (fileObj.data) {
+        fileOpenBtn = `<button onclick="window.open('${fileObj.data}', '_blank')" style="margin-top:4px; background:#4bb34b;">Открыть файл</button>`;
+      }
     }
   }
+
   let datetimeHtml = req.datetime ? `<p><strong>Дата/время:</strong> ${new Date(req.datetime).toLocaleString('ru-RU')}</p>` : '';
 
   let actionsHtml = '';
@@ -273,11 +303,11 @@ function renderRequestCard(req, showAdminControls = false) {
       ${datetimeHtml}
       <p>${req.description}</p>
       ${fileHtml}
+      ${fileOpenBtn}
       ${actionsHtml}
     </div>
   `;
 }
-
 // Админ-панель
 function switchAdminTab(tab) {
   currentTab = tab;
