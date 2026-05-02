@@ -3,7 +3,7 @@
 // ==========================================
 const ADMIN_ID = 372708944;          // Твой реальный VK ID
 const APP_ID = 54575499;              // ID мини-приложения VK
-const API_URL = 'https://script.google.com/macros/s/AKfycbweogVun2KupPEbuq7WLZpQa0gUIwbrMKlIpNF-PvycDVLubHNaNHIubGyBL4Ans_uM4A/exec'; // URL веб-приложения Google Apps Script
+const API_URL = 'https://script.google.com/macros/s/AKfycbweogVun2KupPEbuq7WLZpQa0gUIwbrMKlIpNF-PvycDVLubHNaNHIubGyBL4Ans_uM4A/exec'; // Твой URL веб-приложения Google Apps Script
 
 // ==========================================
 // ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
@@ -12,6 +12,7 @@ let currentUser = null;
 let isAdmin = false;
 let requests = [];
 let currentTab = 'active';
+let selectedRequestId = null; // ID заявки для детального просмотра
 
 const loadingEl = document.getElementById('loading');
 const userPanel = document.getElementById('userPanel');
@@ -32,7 +33,7 @@ const fileInfo = document.getElementById('fileInfo');
 async function init() {
   console.log('1. init стартовал');
 
-  // Обязательная инициализация VK Mini App
+  // Обязательная инициализация для VK Mini App
   if (typeof vkBridge !== 'undefined') {
     try {
       await vkBridge.send('VKWebAppInit');
@@ -42,7 +43,7 @@ async function init() {
     }
   }
 
-  // Получаем пользователя
+  // Получаем данные пользователя (с таймаутом для браузера)
   if (typeof vkBridge === 'undefined') {
     console.warn('vkBridge не найден – работаем с тестовым пользователем');
     currentUser = { id: 0, first_name: 'Тест', last_name: 'Тестов' };
@@ -81,6 +82,7 @@ async function init() {
     renderMyRequests();
   }
 
+  // Обработчики
   typeSelect.addEventListener('change', toggleDatetime);
   fileInput.addEventListener('change', handleFile);
   requestForm.addEventListener('submit', handleFormSubmit);
@@ -100,7 +102,6 @@ async function loadRequestsFromServer() {
   } catch (e) {
     console.error('Не удалось загрузить заявки:', e);
     requests = [];
-    // Если нужно — покажи уведомление пользователю
   }
 }
 
@@ -108,7 +109,6 @@ async function createRequestOnServer(newRequest) {
   try {
     const response = await fetch(API_URL, {
       method: 'POST',
-      // Без 'Content-Type' — браузер отправит text/plain, preflight не нужен
       body: JSON.stringify(newRequest)
     });
     if (!response.ok) throw new Error('Ошибка сети');
@@ -160,6 +160,16 @@ function fileToBase64(file) {
   });
 }
 
+// Скачивание файла по base64-строке
+function downloadFile(base64Data, fileName) {
+  const link = document.createElement('a');
+  link.href = base64Data;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
 // Отправка заявки
 async function handleFormSubmit(e) {
   e.preventDefault();
@@ -181,7 +191,6 @@ async function handleFormSubmit(e) {
   let fileName = null;
   const file = fileInput.files[0];
   if (file) {
-    // Ограничение на размер файла (5 МБ)
     const maxSize = 5 * 1024 * 1024;
     if (file.size > maxSize) {
       alert('Файл слишком большой. Максимальный размер: 5 МБ.');
@@ -208,7 +217,6 @@ async function handleFormSubmit(e) {
     createdAt: new Date().toISOString()
   };
 
-  // Показываем индикатор на кнопке
   const submitBtn = requestForm.querySelector('button[type="submit"]');
   const originalText = submitBtn.textContent;
   submitBtn.textContent = 'Отправка...';
@@ -216,40 +224,85 @@ async function handleFormSubmit(e) {
 
   await createRequestOnServer(newRequest);
 
-  // Восстанавливаем кнопку
   submitBtn.textContent = originalText;
   submitBtn.disabled = false;
 
-  // Очищаем форму
   requestForm.reset();
   fileInfo.textContent = '';
   datetimeBlock.classList.add('hidden');
 
-  // Локально добавляем заявку в список (без лишней загрузки с сервера)
-  newRequest.id = Date.now(); // временный ID, при перезагрузке страницы заменится реальным
+  // Локально добавляем заявку без перезагрузки всего списка
+  newRequest.id = Date.now();
   requests.push(newRequest);
-  renderMyRequests();
-  if (isAdmin) renderAdminPanel();
-
+  selectedRequestId = null; // сбрасываем детальный просмотр
+  if (isAdmin) {
+    renderAdminPanel();
+  } else {
+    renderMyRequests();
+  }
   alert('Заявка успешно отправлена!');
 }
 
 // ==========================================
-// ОТОБРАЖЕНИЕ ЗАЯВОК
+// ОТОБРАЖЕНИЕ (список + детали)
 // ==========================================
-function renderMyRequests() {
-  const myReqs = requests.filter(r => r.userId == currentUser.id);
-  if (myReqs.length === 0) {
-    myRequestsList.innerHTML = '<p>У вас пока нет заявок.</p>';
-    return;
-  }
-  myRequestsList.innerHTML = myReqs
-    .sort((a, b) => b.id - a.id)
-    .map(req => renderRequestCard(req, false))
-    .join('');
+
+// Получение объекта заявки по ID
+function getRequestById(id) {
+  return requests.find(r => r.id == id);
 }
 
-function renderRequestCard(req, showAdminControls = false) {
+// Показать детальную информацию о заявке
+function showRequestDetail(id) {
+  selectedRequestId = id;
+  if (isAdmin) {
+    renderAdminPanel();
+  } else {
+    renderMyRequests();
+  }
+}
+
+// Вернуться к списку
+function hideRequestDetail() {
+  selectedRequestId = null;
+  if (isAdmin) {
+    renderAdminPanel();
+  } else {
+    renderMyRequests();
+  }
+}
+
+// Рендер одной строки в списке (краткий вид)
+function renderRequestListItem(req) {
+  const typeName = req.type === 'support' ? 'Тех.сопровождение' : 'Тех.обслуживание';
+  const created = new Date(req.createdAt).toLocaleString('ru-RU');
+  const statusMap = {
+    pending: 'В ожидании',
+    in_progress: 'В работе',
+    done: 'Выполнено'
+  };
+  const badgeClass = {
+    pending: 'pending',
+    in_progress: 'in_progress',
+    done: 'done'
+  };
+
+  return `
+    <div class="request-card" style="cursor:pointer;" onclick="showRequestDetail(${req.id})">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <strong>${typeName}</strong>
+          <span class="badge ${badgeClass[req.status]}">${statusMap[req.status]}</span>
+        </div>
+        <span style="color:#888; font-size:13px;">${created}</span>
+      </div>
+      <p style="margin-top:4px;">${req.userName} (${req.subdivision})</p>
+    </div>
+  `;
+}
+
+// Рендер детальной карточки заявки
+function renderRequestDetail(req, showAdminControls = false) {
   const statusMap = {
     pending: 'В ожидании',
     in_progress: 'В работе',
@@ -262,12 +315,12 @@ function renderRequestCard(req, showAdminControls = false) {
   };
   const typeName = req.type === 'support' ? 'Тех.сопровождение' : 'Тех.обслуживание';
   const created = new Date(req.createdAt).toLocaleString('ru-RU');
+
   let fileHtml = '';
-  let fileOpenBtn = '';
+  let fileDownloadBtn = '';
 
   if (req.file) {
     let fileObj = req.file;
-    // Парсим, если это строка JSON
     if (typeof fileObj === 'string') {
       try {
         fileObj = JSON.parse(fileObj);
@@ -277,9 +330,8 @@ function renderRequestCard(req, showAdminControls = false) {
     }
     if (fileObj && fileObj.name) {
       fileHtml = `<p><strong>Файл:</strong> ${fileObj.name}</p>`;
-      // Кнопка открытия файла (открывает в новой вкладке)
       if (fileObj.data) {
-        fileOpenBtn = `<button onclick="window.open('${fileObj.data}', '_blank')" style="margin-top:4px; background:#4bb34b;">Открыть файл</button>`;
+        fileDownloadBtn = `<button onclick="downloadFile('${fileObj.data}', '${fileObj.name}')" style="margin-top:4px; background:#4bb34b;">Скачать файл</button>`;
       }
     }
   }
@@ -289,28 +341,54 @@ function renderRequestCard(req, showAdminControls = false) {
   let actionsHtml = '';
   if (showAdminControls) {
     if (req.status === 'pending') {
-      actionsHtml = `<div class="actions"><button onclick="changeStatus(${req.id}, 'in_progress')">В работу</button></div>`;
+      actionsHtml = `<div class="actions"><button onclick="changeStatus(${req.id}, 'in_progress'); hideRequestDetail();">В работу</button></div>`;
     } else if (req.status === 'in_progress') {
-      actionsHtml = `<div class="actions"><button onclick="changeStatus(${req.id}, 'done')">Выполнено</button></div>`;
+      actionsHtml = `<div class="actions"><button onclick="changeStatus(${req.id}, 'done'); hideRequestDetail();">Выполнено</button></div>`;
     }
   }
 
   return `
-    <div class="request-card">
-      <p><strong>${typeName}</strong> <span class="badge ${badgeClass[req.status]}">${statusMap[req.status]}</span></p>
+    <div class="panel">
+      <button onclick="hideRequestDetail()" style="margin-bottom:12px; background:#888;">← Назад к списку</button>
+      <h2>${typeName} <span class="badge ${badgeClass[req.status]}">${statusMap[req.status]}</span></h2>
       <p><strong>От:</strong> ${req.userName} (${req.subdivision})</p>
       <p><strong>Создана:</strong> ${created}</p>
       ${datetimeHtml}
-      <p>${req.description}</p>
+      <p><strong>Описание:</strong> ${req.description}</p>
       ${fileHtml}
-      ${fileOpenBtn}
+      ${fileDownloadBtn}
       ${actionsHtml}
     </div>
   `;
 }
+
+// Пользовательский список
+function renderMyRequests() {
+  // Если выбран детальный просмотр, показываем его
+  if (selectedRequestId) {
+    const req = getRequestById(selectedRequestId);
+    if (req) {
+      myRequestsList.innerHTML = renderRequestDetail(req, false);
+      return;
+    }
+  }
+
+  // Иначе показываем список
+  const myReqs = requests.filter(r => r.userId == currentUser.id);
+  if (myReqs.length === 0) {
+    myRequestsList.innerHTML = '<p>У вас пока нет заявок.</p>';
+    return;
+  }
+  myRequestsList.innerHTML = myReqs
+    .sort((a, b) => b.id - a.id)
+    .map(req => renderRequestListItem(req))
+    .join('');
+}
+
 // Админ-панель
 function switchAdminTab(tab) {
   currentTab = tab;
+  selectedRequestId = null; // сбрасываем детальный просмотр при смене вкладки
   document.querySelectorAll('.tabs button').forEach(btn => btn.classList.remove('active'));
   if (tab === 'active') {
     tabActive.classList.add('active');
@@ -321,6 +399,16 @@ function switchAdminTab(tab) {
 }
 
 function renderAdminPanel() {
+  // Если выбран детальный просмотр, показываем его
+  if (selectedRequestId) {
+    const req = getRequestById(selectedRequestId);
+    if (req) {
+      adminRequestsList.innerHTML = renderRequestDetail(req, true);
+      return;
+    }
+  }
+
+  // Иначе показываем список
   const filtered = currentTab === 'active'
     ? requests.filter(r => r.status !== 'done')
     : requests.filter(r => r.status === 'done');
@@ -331,16 +419,17 @@ function renderAdminPanel() {
   }
   adminRequestsList.innerHTML = filtered
     .sort((a, b) => b.id - a.id)
-    .map(req => renderRequestCard(req, true))
+    .map(req => renderRequestListItem(req))
     .join('');
 }
 
+// Смена статуса
 async function changeStatus(requestId, newStatus) {
   if (!isAdmin) return;
   await updateStatusOnServer(requestId, newStatus);
   await loadRequestsFromServer();
+  selectedRequestId = null; // после обновления возвращаемся к списку
   renderAdminPanel();
-  // Если обычный пользователь сейчас смотрит — обновить и его список
   if (!isAdmin && currentUser) {
     renderMyRequests();
   }
