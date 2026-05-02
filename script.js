@@ -32,7 +32,7 @@ const fileInfo = document.getElementById('fileInfo');
 async function init() {
   console.log('1. init стартовал');
 
-  // Обязательная инициализация для VK Mini App
+  // Обязательная инициализация VK Mini App
   if (typeof vkBridge !== 'undefined') {
     try {
       await vkBridge.send('VKWebAppInit');
@@ -42,7 +42,7 @@ async function init() {
     }
   }
 
-  // Получаем данные пользователя (с таймаутом для браузера)
+  // Получаем пользователя
   if (typeof vkBridge === 'undefined') {
     console.warn('vkBridge не найден – работаем с тестовым пользователем');
     currentUser = { id: 0, first_name: 'Тест', last_name: 'Тестов' };
@@ -81,7 +81,6 @@ async function init() {
     renderMyRequests();
   }
 
-  // Обработчики
   typeSelect.addEventListener('change', toggleDatetime);
   fileInput.addEventListener('change', handleFile);
   requestForm.addEventListener('submit', handleFormSubmit);
