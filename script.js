@@ -31,12 +31,24 @@ const fileInfo = document.getElementById('fileInfo');
 // ==========================================
 async function init() {
   console.log('1. init стартовал');
+
+  // Обязательная инициализация для VK Mini App
+  if (typeof vkBridge !== 'undefined') {
+    try {
+      await vkBridge.send('VKWebAppInit');
+      console.log('VKWebAppInit отправлен');
+    } catch (e) {
+      console.error('Ошибка VKWebAppInit:', e);
+    }
+  }
+
+  // Получаем данные пользователя (с таймаутом для браузера)
   if (typeof vkBridge === 'undefined') {
     console.warn('vkBridge не найден – работаем с тестовым пользователем');
     currentUser = { id: 0, first_name: 'Тест', last_name: 'Тестов' };
     isAdmin = false;
   } else {
-    console.log('2. vkBridge найден, вызываю getUserInfo с таймаутом');
+    console.log('2. vkBridge найден, вызываю getUserInfo с таймаутом 3 сек');
     try {
       const user = await Promise.race([
         vkBridge.send('VKWebAppGetUserInfo'),
@@ -69,6 +81,7 @@ async function init() {
     renderMyRequests();
   }
 
+  // Обработчики
   typeSelect.addEventListener('change', toggleDatetime);
   fileInput.addEventListener('change', handleFile);
   requestForm.addEventListener('submit', handleFormSubmit);
