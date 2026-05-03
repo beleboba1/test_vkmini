@@ -250,30 +250,23 @@ async function handleFormSubmit(e) {
     return;
   }
 
-  let fileData = null;
-  let fileName = null;
+  let fileData = null, fileName = null;
   const file = fileInput?.files[0];
   if (file) {
     if (file.size > 5 * 1024 * 1024) {
-      alert('Файл слишком большой. Максимум 5 МБ.');
+      alert('Файл слишком большой (макс. 5 МБ)');
       return;
     }
     try {
       fileData = await fileToBase64(file);
       fileName = file.name;
-    } catch (err) {
-      alert('Ошибка чтения файла');
-      return;
-    }
+    } catch { alert('Ошибка чтения файла'); return; }
   }
 
-  const newRequest = {
+  const newReq = {
     userId: currentUser.id,
     userName: `${currentUser.first_name} ${currentUser.last_name}`,
-    subdivision,
-    type,
-    description,
-    datetime,
+    subdivision, type, description, datetime,
     file: fileData ? { name: fileName, data: fileData } : null,
     status: 'pending',
     createdAt: new Date().toISOString()
@@ -282,25 +275,23 @@ async function handleFormSubmit(e) {
   submitBtn.textContent = 'Отправка...';
   submitBtn.disabled = true;
 
-  const serverId = await createRequestOnServer(newRequest);
+  const serverId = await createRequestOnServer(newReq);
   if (serverId) {
-    newRequest.id = serverId;
-    requests.push(newRequest);
-    if (isAdmin) showNotification(`Новая заявка от ${newRequest.userName}`);
+    newReq.id = serverId;
+    requests.push(newReq);
+    if (isAdmin) showNotification(`Новая заявка от ${newReq.userName}`);
     selectedRequestId = null;
     currentPage = 1;
-    if (isAdmin) renderAdminPanel();
-    else renderMyRequests();
+    if (isAdmin) renderAdminPanel(); else renderMyRequests();
     requestForm.reset();
     if (fileInfo) fileInfo.textContent = '';
     if (datetimeBlock) datetimeBlock.classList.add('hidden');
-    alert('Заявка успешно отправлена!');
+    alert('✅ Заявка отправлена!');
   }
 
   submitBtn.textContent = 'Отправить заявку';
   submitBtn.disabled = false;
 }
-
 // ==========================================
 // ФИЛЬТРАЦИЯ И ПОИСК
 // ==========================================
@@ -475,10 +466,28 @@ function renderMyRequests() {
   const filtered = getFilteredRequests(myReqs);
   const paginated = paginate(filtered);
 
-  myRequestsList.innerHTML = paginated.length
+  // ⬇️ Вот эта часть добавляет поиск поверх списка
+  let html = `
+    <div class="search-box">
+      <input type="text" id="userSearch" placeholder="Поиск..." value="${searchQuery}" oninput="onSearchInput(event, 'user')">
+      <select id="userStatusFilter" onchange="onFilterChange('user')">
+        <option value="all" ${statusFilter==='all'?'selected':''}>Все статусы</option>
+        <option value="pending" ${statusFilter==='pending'?'selected':''}>В ожидании</option>
+        <option value="in_progress" ${statusFilter==='in_progress'?'selected':''}>В работе</option>
+        <option value="done" ${statusFilter==='done'?'selected':''}>Выполнено</option>
+      </select>
+      <select id="userTypeFilter" onchange="onFilterChange('user')">
+        <option value="all" ${typeFilter==='all'?'selected':''}>Все типы</option>
+        <option value="maintenance" ${typeFilter==='maintenance'?'selected':''}>Тех.обслуживание</option>
+        <option value="support" ${typeFilter==='support'?'selected':''}>Тех.сопровождение</option>
+      </select>
+    </div>
+  `;
+  html += paginated.length
     ? paginated.map(req => renderRequestListItem(req)).join('')
     : '<p>Заявок не найдено.</p>';
 
+  myRequestsList.innerHTML = html;
   renderPagination(filtered.length, 'userPagination', 'renderMyRequests');
 }
 
