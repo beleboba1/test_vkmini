@@ -23,39 +23,43 @@ let typeFilter = 'all';
 // Пагинация
 let currentPage = 1;
 
-// Флаг, указывающий, что поле ввода в фокусе
 let isInputFocused = false;
-
-// DOM-элементы
-const loadingEl = document.getElementById('loading');
-const userPanel = document.getElementById('userPanel');
-const adminPanel = document.getElementById('adminPanel');
-const typeSelect = document.getElementById('typeSelect');
-const datetimeBlock = document.getElementById('datetimeBlock');
-const requestForm = document.getElementById('requestForm');
-const submitBtn = document.getElementById('submitBtn');
-const myRequestsList = document.getElementById('myRequestsList');
-const adminRequestsList = document.getElementById('adminRequestsList');
-const tabActive = document.getElementById('tabActive');
-const tabDone = document.getElementById('tabDone');
-const refreshBtn = document.getElementById('refreshBtn');
-const refreshIcon = document.getElementById('refreshIcon');
-const fileInput = document.getElementById('fileInput');
-const fileInfo = document.getElementById('fileInfo');
-const notification = document.getElementById('notification');
-const notificationText = document.getElementById('notificationText');
-
 let autoRefreshInterval = null;
+
+// Все DOM-элементы будем получать внутри init()
+let loadingEl, userPanel, adminPanel,
+    typeSelect, datetimeBlock, requestForm, submitBtn,
+    myRequestsList, adminRequestsList,
+    tabActive, tabDone, refreshBtn, refreshIcon,
+    fileInput, fileInfo, notification, notificationText;
 
 // ==========================================
 // ИНИЦИАЛИЗАЦИЯ
 // ==========================================
 async function init() {
+  // Получаем элементы здесь, когда DOM точно готов
+  loadingEl = document.getElementById('loading');
+  userPanel = document.getElementById('userPanel');
+  adminPanel = document.getElementById('adminPanel');
+  typeSelect = document.getElementById('typeSelect');
+  datetimeBlock = document.getElementById('datetimeBlock');
+  requestForm = document.getElementById('requestForm');
+  submitBtn = document.getElementById('submitBtn');
+  myRequestsList = document.getElementById('myRequestsList');
+  adminRequestsList = document.getElementById('adminRequestsList');
+  tabActive = document.getElementById('tabActive');
+  tabDone = document.getElementById('tabDone');
+  refreshBtn = document.getElementById('refreshBtn');
+  refreshIcon = document.getElementById('refreshIcon');
+  fileInput = document.getElementById('fileInput');
+  fileInfo = document.getElementById('fileInfo');
+  notification = document.getElementById('notification');
+  notificationText = document.getElementById('notificationText');
+
   console.log('init стартовал');
+
   if (typeof vkBridge !== 'undefined') {
-    try {
-      await vkBridge.send('VKWebAppInit');
-    } catch (e) {}
+    try { await vkBridge.send('VKWebAppInit'); } catch (e) {}
   }
 
   if (typeof vkBridge === 'undefined') {
@@ -86,19 +90,20 @@ async function init() {
     renderMyRequests();
   }
 
-  typeSelect.addEventListener('change', toggleDatetime);
-  fileInput.addEventListener('change', handleFile);
-  requestForm.addEventListener('submit', handleFormSubmit);
-  tabActive.addEventListener('click', () => switchAdminTab('active'));
-  tabDone.addEventListener('click', () => switchAdminTab('done'));
-  refreshBtn.addEventListener('click', manualRefresh);
+  // Обработчики событий (проверяем, что элементы существуют)
+  if (typeSelect) typeSelect.addEventListener('change', toggleDatetime);
+  if (fileInput) fileInput.addEventListener('change', handleFile);
+  if (requestForm) requestForm.addEventListener('submit', handleFormSubmit);
+  if (tabActive) tabActive.addEventListener('click', () => switchAdminTab('active'));
+  if (tabDone) tabDone.addEventListener('click', () => switchAdminTab('done'));
+  if (refreshBtn) refreshBtn.addEventListener('click', manualRefresh);
 
-  // Навешиваем отслеживание фокуса на все поля поиска и фильтров
+  // Отслеживание фокуса на полях
   document.querySelectorAll('.search-box input, .search-box select').forEach(el => {
     el.addEventListener('focus', () => { isInputFocused = true; });
     el.addEventListener('blur', () => {
       isInputFocused = false;
-      // Когда фокус ушёл, применяем фильтр (если данные изменились)
+      // Когда фокус ушёл, применяем фильтры
       if (isAdmin) renderAdminPanel();
       else renderMyRequests();
     });
@@ -155,18 +160,15 @@ async function updateStatusOnServer(requestId, newStatus) {
 }
 
 // ==========================================
-// АВТООБНОВЛЕНИЕ (улучшенное)
+// АВТООБНОВЛЕНИЕ
 // ==========================================
 function startAutoRefresh() {
   if (autoRefreshInterval) clearInterval(autoRefreshInterval);
   autoRefreshInterval = setInterval(async () => {
-    // Не трогаем интерфейс, пока пользователь печатает
     if (isInputFocused) {
-      // Только подгружаем свежие данные в фоне
       await loadRequestsFromServer();
       return;
     }
-    // Если фокуса нет, можно обновить список
     await loadRequestsFromServer();
     if (isAdmin) renderAdminPanel();
     else renderMyRequests();
@@ -174,6 +176,7 @@ function startAutoRefresh() {
 }
 
 async function manualRefresh() {
+  if (!refreshIcon || !refreshBtn) return;
   refreshIcon.textContent = '⏳';
   refreshBtn.disabled = true;
   await loadRequestsFromServer();
@@ -187,23 +190,26 @@ async function manualRefresh() {
 // УВЕДОМЛЕНИЕ
 // ==========================================
 function showNotification(msg) {
+  if (!notificationText || !notification) return;
   notificationText.textContent = msg;
   notification.classList.remove('hidden');
   setTimeout(hideNotification, 5000);
 }
 
 function hideNotification() {
-  notification.classList.add('hidden');
+  if (notification) notification.classList.add('hidden');
 }
 
 // ==========================================
 // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 // ==========================================
 function toggleDatetime() {
+  if (!datetimeBlock || !typeSelect) return;
   datetimeBlock.classList.toggle('hidden', typeSelect.value !== 'support');
 }
 
 function handleFile() {
+  if (!fileInput || !fileInfo) return;
   const file = fileInput.files[0];
   fileInfo.textContent = file ? `Файл: ${file.name} (${(file.size / 1024).toFixed(1)} КБ)` : '';
 }
@@ -228,10 +234,12 @@ function downloadFile(base64Data, fileName) {
 
 async function handleFormSubmit(e) {
   e.preventDefault();
+  if (!typeSelect || !requestForm || !submitBtn) return;
+
   const type = typeSelect.value;
-  const subdivision = document.getElementById('subdivision').value.trim();
-  const description = document.getElementById('description').value.trim();
-  const datetime = type === 'support' ? document.getElementById('datetime').value : null;
+  const subdivision = document.getElementById('subdivision')?.value.trim() || '';
+  const description = document.getElementById('description')?.value.trim() || '';
+  const datetime = type === 'support' ? document.getElementById('datetime')?.value || null : null;
 
   if (!subdivision || !description) {
     alert('Заполните подразделение и описание');
@@ -244,7 +252,7 @@ async function handleFormSubmit(e) {
 
   let fileData = null;
   let fileName = null;
-  const file = fileInput.files[0];
+  const file = fileInput?.files[0];
   if (file) {
     if (file.size > 5 * 1024 * 1024) {
       alert('Файл слишком большой. Максимум 5 МБ.');
@@ -284,8 +292,8 @@ async function handleFormSubmit(e) {
     if (isAdmin) renderAdminPanel();
     else renderMyRequests();
     requestForm.reset();
-    fileInfo.textContent = '';
-    datetimeBlock.classList.add('hidden');
+    if (fileInfo) fileInfo.textContent = '';
+    if (datetimeBlock) datetimeBlock.classList.add('hidden');
     alert('Заявка успешно отправлена!');
   }
 
@@ -320,8 +328,8 @@ function onSearchInput(event, panel) {
 function onFilterChange(panel) {
   const statusSel = document.getElementById(panel === 'user' ? 'userStatusFilter' : 'adminStatusFilter');
   const typeSel = document.getElementById(panel === 'user' ? 'userTypeFilter' : 'adminTypeFilter');
-  statusFilter = statusSel.value;
-  typeFilter = typeSel.value;
+  statusFilter = statusSel?.value || 'all';
+  typeFilter = typeSel?.value || 'all';
   currentPage = 1;
   if (panel === 'user') renderMyRequests();
   else renderAdminPanel();
@@ -331,8 +339,9 @@ function onFilterChange(panel) {
 // ПАГИНАЦИЯ
 // ==========================================
 function renderPagination(totalItems, containerId, renderFn) {
-  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
   const container = document.getElementById(containerId);
+  if (!container) return;
+  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
   if (totalPages <= 1) {
     container.innerHTML = '';
     return;
@@ -409,7 +418,10 @@ function renderRequestDetail(req, showAdminControls = false) {
     if (fileObj?.name) {
       fileHtml = `<p><strong>Файл:</strong> ${fileObj.name}</p>`;
       if (fileObj.data) {
-        fileDownloadBtn = `<button onclick="downloadFile('${fileObj.data.replace(/'/g, "\\'")}', '${fileObj.name.replace(/'/g, "\\'")}')" style="margin-top:4px; background:#4bb34b;">Скачать файл</button>`;
+        // Безопасное экранирование
+        const safeData = fileObj.data.replace(/'/g, "\\'");
+        const safeName = fileObj.name.replace(/'/g, "\\'");
+        fileDownloadBtn = `<button onclick="downloadFile('${safeData}', '${safeName}')" style="margin-top:4px; background:#4bb34b;">Скачать файл</button>`;
       }
     }
   }
@@ -445,22 +457,16 @@ function renderRequestDetail(req, showAdminControls = false) {
 }
 
 // ==========================================
-// РЕНДЕР СПИСКОВ С ПАГИНАЦИЕЙ
+// РЕНДЕР СПИСКОВ
 // ==========================================
 function renderMyRequests() {
-  // Синхронизируем значения поисковых полей с переменными
-  const searchField = document.getElementById('userSearch');
-  if (searchField) searchQuery = searchField.value;
-  const statusField = document.getElementById('userStatusFilter');
-  if (statusField) statusFilter = statusField.value;
-  const typeField = document.getElementById('userTypeFilter');
-  if (typeField) typeFilter = typeField.value;
-
+  if (!myRequestsList) return;
   if (selectedRequestId) {
     const req = getRequestById(selectedRequestId);
     if (req) {
       myRequestsList.innerHTML = renderRequestDetail(req, false);
-      document.getElementById('userPagination').innerHTML = '';
+      const pag = document.getElementById('userPagination');
+      if (pag) pag.innerHTML = '';
       return;
     }
   }
@@ -468,7 +474,7 @@ function renderMyRequests() {
   const myReqs = requests.filter(r => r.userId == currentUser.id);
   const filtered = getFilteredRequests(myReqs);
   const paginated = paginate(filtered);
-  
+
   myRequestsList.innerHTML = paginated.length
     ? paginated.map(req => renderRequestListItem(req)).join('')
     : '<p>Заявок не найдено.</p>';
@@ -477,19 +483,13 @@ function renderMyRequests() {
 }
 
 function renderAdminPanel() {
-  // Синхронизируем значения поисковых полей с переменными
-  const searchField = document.getElementById('adminSearch');
-  if (searchField) searchQuery = searchField.value;
-  const statusField = document.getElementById('adminStatusFilter');
-  if (statusField) statusFilter = statusField.value;
-  const typeField = document.getElementById('adminTypeFilter');
-  if (typeField) typeFilter = typeField.value;
-
+  if (!adminRequestsList) return;
   if (selectedRequestId) {
     const req = getRequestById(selectedRequestId);
     if (req) {
       adminRequestsList.innerHTML = renderRequestDetail(req, true);
-      document.getElementById('adminPagination').innerHTML = '';
+      const pag = document.getElementById('adminPagination');
+      if (pag) pag.innerHTML = '';
       return;
     }
   }
@@ -511,14 +511,18 @@ function renderAdminPanel() {
 // СМЕНА ВКЛАДОК И СТАТУСОВ
 // ==========================================
 function switchAdminTab(tab) {
+  if (!tabActive || !tabDone) return;
   currentTab = tab;
   selectedRequestId = null;
   searchQuery = '';
   statusFilter = 'all';
   typeFilter = 'all';
-  document.getElementById('adminSearch').value = '';
-  document.getElementById('adminStatusFilter').value = 'all';
-  document.getElementById('adminTypeFilter').value = 'all';
+  const adminSearch = document.getElementById('adminSearch');
+  const adminStatusFilter = document.getElementById('adminStatusFilter');
+  const adminTypeFilter = document.getElementById('adminTypeFilter');
+  if (adminSearch) adminSearch.value = '';
+  if (adminStatusFilter) adminStatusFilter.value = 'all';
+  if (adminTypeFilter) adminTypeFilter.value = 'all';
   currentPage = 1;
 
   tabActive.classList.toggle('active', tab === 'active');
