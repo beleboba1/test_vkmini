@@ -8,64 +8,69 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbweogVun2KupPEbuq7WLZpQ
 // ==========================================
 // ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
 // ==========================================
-let currentUser, isAdmin, requests = [], currentTab = 'active',
-    selectedRequestId = null, searchQuery = '', statusFilter = 'all',
-    currentPage = 1;
+let currentUser = null;
+let isAdmin = false;
+let requests = [];
+let currentTab = 'active';
+let selectedRequestId = null;
+let searchQuery = '';                // строка поиска
 
 // DOM-элементы
-let loadingEl, userPanel, adminPanel, typeSelect, datetimeBlock,
-    requestForm, submitBtn, myRequestsList, adminRequestsList,
-    tabActive, tabDone, refreshBtn, refreshIcon, fileInput, fileInfo,
-    notification, notificationText;
+const loadingEl = document.getElementById('loading');
+const userPanel = document.getElementById('userPanel');
+const adminPanel = document.getElementById('adminPanel');
+const typeSelect = document.getElementById('typeSelect');
+const datetimeBlock = document.getElementById('datetimeBlock');
+const requestForm = document.getElementById('requestForm');
+const myRequestsList = document.getElementById('myRequestsList');
+const adminRequestsList = document.getElementById('adminRequestsList');
+const tabActive = document.getElementById('tabActive');
+const tabDone = document.getElementById('tabDone');
+const fileInput = document.getElementById('fileInput');
+const fileInfo = document.getElementById('fileInfo');
 
+// Таймер автообновления
 let autoRefreshInterval = null;
 
 // ==========================================
 // ИНИЦИАЛИЗАЦИЯ
 // ==========================================
 async function init() {
-  loadingEl = document.getElementById('loading');
-  userPanel = document.getElementById('userPanel');
-  adminPanel = document.getElementById('adminPanel');
-  typeSelect = document.getElementById('typeSelect');
-  datetimeBlock = document.getElementById('datetimeBlock');
-  requestForm = document.getElementById('requestForm');
-  submitBtn = document.getElementById('submitBtn');
-  myRequestsList = document.getElementById('myRequestsList');
-  adminRequestsList = document.getElementById('adminRequestsList');
-  tabActive = document.getElementById('tabActive');
-  tabDone = document.getElementById('tabDone');
-  refreshBtn = document.getElementById('refreshBtn');
-  refreshIcon = document.getElementById('refreshIcon');
-  fileInput = document.getElementById('fileInput');
-  fileInfo = document.getElementById('fileInfo');
-  notification = document.getElementById('notification');
-  notificationText = document.getElementById('notificationText');
-
-  console.log('init стартовал');
+  console.log('1. init стартовал');
 
   if (typeof vkBridge !== 'undefined') {
-    try { await vkBridge.send('VKWebAppInit'); } catch (e) {}
+    try {
+      await vkBridge.send('VKWebAppInit');
+      console.log('VKWebAppInit отправлен');
+    } catch (e) {
+      console.error('Ошибка VKWebAppInit:', e);
+    }
   }
 
   if (typeof vkBridge === 'undefined') {
+    console.warn('vkBridge не найден – тестовый пользователь');
     currentUser = { id: 0, first_name: 'Тест', last_name: 'Тестов' };
     isAdmin = false;
   } else {
+    console.log('2. вызываю getUserInfo с таймаутом');
     try {
       const user = await Promise.race([
         vkBridge.send('VKWebAppGetUserInfo'),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Таймаут')), 3000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Таймаут VK Bridge')), 3000))
       ]);
       currentUser = { id: user.id, first_name: user.first_name, last_name: user.last_name };
       isAdmin = (currentUser.id === ADMIN_ID);
+      console.log('3. пользователь получен:', currentUser);
     } catch (e) {
+      console.error('4. ошибка получения пользователя:', e);
       currentUser = { id: 0, first_name: 'Гость', last_name: '' };
       isAdmin = false;
     }
   }
 
+  console.log('5. загружаю заявки с сервера...');
   await loadRequestsFromServer();
+  console.log('6. скрываю loading');
   loadingEl.classList.add('hidden');
 
   if (isAdmin) {
@@ -76,18 +81,20 @@ async function init() {
     renderMyRequests();
   }
 
-  typeSelect?.addEventListener('change', toggleDatetime);
-  fileInput?.addEventListener('change', handleFile);
-  requestForm?.addEventListener('submit', handleFormSubmit);
-  tabActive?.addEventListener('click', () => switchAdminTab('active'));
-  tabDone?.addEventListener('click', () => switchAdminTab('done'));
-  refreshBtn?.addEventListener('click', manualRefresh);
+  // Обработчики
+  typeSelect.addEventListener('change', toggleDatetime);
+  fileInput.addEventListener('change', handleFile);
+  requestForm.addEventListener('submit', handleFormSubmit);
+  tabActive.addEventListener('click', () => switchAdminTab('active'));
+  tabDone.addEventListener('click', () => switchAdminTab('done'));
 
+  // Запускаем автообновление каждые 10 секунд
   startAutoRefresh();
+  console.log('7. готово');
 }
 
 // ==========================================
-// СЕРВЕРНЫЕ ЗАПРОСЫ
+// ВЗАИМОДЕЙСТВИЕ С СЕРВЕРОМ
 // ==========================================
 async function loadRequestsFromServer() {
   try {
@@ -95,7 +102,8 @@ async function loadRequestsFromServer() {
     if (!response.ok) throw new Error('Ошибка сети');
     requests = await response.json();
   } catch (e) {
-    console.error('Ошибка загрузки заявок:', e);
+    console.error('Не удалось загрузить заявки:', e);
+    requests = [];
   }
 }
 
@@ -108,9 +116,10 @@ async function createRequestOnServer(newRequest) {
     if (!response.ok) throw new Error('Ошибка сети');
     const result = await response.json();
     if (!result.success) throw new Error('Сервер вернул ошибку');
+    console.log('Заявка создана, ID:', result.id);
     return result.id;
   } catch (e) {
-    console.error('Ошибка создания заявки:', e);
+    console.error('Ошибка при создании заявки:', e);
     alert('Не удалось отправить заявку. Проверьте соединение.');
     return null;
   }
@@ -125,58 +134,49 @@ async function updateStatusOnServer(requestId, newStatus) {
     if (!response.ok) throw new Error('Ошибка сети');
     const result = await response.json();
     if (!result.success) throw new Error('Сервер вернул ошибку');
+    console.log('Статус обновлён');
     return true;
   } catch (e) {
-    console.error('Ошибка обновления статуса:', e);
+    console.error('Ошибка при обновлении статуса:', e);
     alert('Не удалось обновить статус.');
     return false;
   }
 }
 
 // ==========================================
-// АВТООБНОВЛЕНИЕ
+// АВТООБНОВЛЕНИЕ (опрос сервера)
 // ==========================================
 function startAutoRefresh() {
   if (autoRefreshInterval) clearInterval(autoRefreshInterval);
   autoRefreshInterval = setInterval(async () => {
+    // Не обновляем, если пользователь сейчас заполняет форму или открыта детальная карточка? 
+    // Лучше обновлять в любом случае, но не сбрасывать интерфейс.
     await loadRequestsFromServer();
-    if (isAdmin) renderAdminPanel();
-    else renderMyRequests();
-  }, 15000);
+    if (isAdmin) {
+      renderAdminPanel();
+    } else {
+      renderMyRequests();
+    }
+  }, 10000); // каждые 10 секунд
 }
 
-async function manualRefresh() {
-  if (!refreshIcon || !refreshBtn) return;
-  refreshIcon.textContent = '⏳';
-  refreshBtn.disabled = true;
-  await loadRequestsFromServer();
-  if (isAdmin) renderAdminPanel();
-  else renderMyRequests();
-  refreshIcon.textContent = '🔄';
-  refreshBtn.disabled = false;
-}
-
-// ==========================================
-// УВЕДОМЛЕНИЕ
-// ==========================================
-function showNotification(msg) {
-  if (!notificationText || !notification) return;
-  notificationText.textContent = msg;
-  notification.classList.remove('hidden');
-  setTimeout(hideNotification, 5000);
-}
-function hideNotification() { notification?.classList.add('hidden'); }
+// Остановка автообновления при закрытии (не обязательно, но хорошо бы)
+window.addEventListener('beforeunload', () => {
+  if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+});
 
 // ==========================================
 // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 // ==========================================
 function toggleDatetime() {
-  datetimeBlock?.classList.toggle('hidden', typeSelect?.value !== 'support');
+  datetimeBlock.classList.toggle('hidden', typeSelect.value !== 'support');
 }
+
 function handleFile() {
-  if (!fileInput || !fileInfo) return;
   const file = fileInput.files[0];
-  fileInfo.textContent = file ? `Файл: ${file.name} (${(file.size / 1024).toFixed(1)} КБ)` : '';
+  fileInfo.textContent = file
+    ? `Выбран файл: ${file.name} (${(file.size / 1024).toFixed(1)} КБ)`
+    : '';
 }
 
 function fileToBase64(file) {
@@ -188,7 +188,9 @@ function fileToBase64(file) {
   });
 }
 
+// Надёжное скачивание файла
 function downloadFile(base64Data, fileName) {
+  // Создаём ссылку, указываем download, имитируем клик
   const link = document.createElement('a');
   link.href = base64Data;
   link.download = fileName;
@@ -197,15 +199,13 @@ function downloadFile(base64Data, fileName) {
   document.body.removeChild(link);
 }
 
-// Отправка формы
+// Отправка заявки
 async function handleFormSubmit(e) {
   e.preventDefault();
-  if (!typeSelect || !requestForm || !submitBtn) return;
-
   const type = typeSelect.value;
-  const subdivision = document.getElementById('subdivision')?.value.trim() || '';
-  const description = document.getElementById('description')?.value.trim() || '';
-  const datetime = type === 'support' ? document.getElementById('datetime')?.value || null : null;
+  const subdivision = document.getElementById('subdivision').value.trim();
+  const description = document.getElementById('description').value.trim();
+  const datetime = type === 'support' ? document.getElementById('datetime').value : null;
 
   if (!subdivision || !description) {
     alert('Заполните подразделение и описание');
@@ -216,146 +216,203 @@ async function handleFormSubmit(e) {
     return;
   }
 
-  let fileData = null, fileName = null;
-  const file = fileInput?.files[0];
+  let fileData = null;
+  let fileName = null;
+  const file = fileInput.files[0];
   if (file) {
-    if (file.size > 5 * 1024 * 1024) {
-      alert('Файл слишком большой (макс. 5 МБ)');
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      alert('Файл слишком большой. Максимальный размер: 5 МБ.');
       return;
     }
     try {
       fileData = await fileToBase64(file);
       fileName = file.name;
-    } catch { alert('Ошибка чтения файла'); return; }
+    } catch (err) {
+      alert('Ошибка чтения файла');
+      return;
+    }
   }
 
-  const newReq = {
+  const newRequest = {
     userId: currentUser.id,
     userName: `${currentUser.first_name} ${currentUser.last_name}`,
-    subdivision, type, description, datetime,
+    subdivision,
+    type,
+    description,
+    datetime,
     file: fileData ? { name: fileName, data: fileData } : null,
     status: 'pending',
     createdAt: new Date().toISOString()
   };
 
+  const submitBtn = requestForm.querySelector('button[type="submit"]');
+  const originalText = submitBtn.textContent;
   submitBtn.textContent = 'Отправка...';
   submitBtn.disabled = true;
 
-  const serverId = await createRequestOnServer(newReq);
+  const serverId = await createRequestOnServer(newRequest);
   if (serverId) {
-    newReq.id = serverId;
-    requests.push(newReq);
-    if (isAdmin) showNotification(`Новая заявка от ${newReq.userName}`);
+    newRequest.id = serverId;
+    requests.push(newRequest);
     selectedRequestId = null;
-    currentPage = 1;
-    if (isAdmin) renderAdminPanel(); else renderMyRequests();
-    requestForm.reset();
-    if (fileInfo) fileInfo.textContent = '';
-    if (datetimeBlock) datetimeBlock.classList.add('hidden');
-    alert('✅ Заявка отправлена!');
+    if (isAdmin) {
+      renderAdminPanel();
+    } else {
+      renderMyRequests();
+    }
+    alert('Заявка успешно отправлена!');
   }
 
-  submitBtn.textContent = 'Отправить заявку';
+  submitBtn.textContent = originalText;
   submitBtn.disabled = false;
+  requestForm.reset();
+  fileInfo.textContent = '';
+  datetimeBlock.classList.add('hidden');
 }
 
 // ==========================================
-// ФИЛЬТРАЦИЯ
+// ПОИСК И ФИЛЬТРАЦИЯ
 // ==========================================
-function getFilteredRequests(list) {
+function filterRequests(list) {
+  if (!searchQuery.trim()) return list;
+  const q = searchQuery.toLowerCase();
   return list.filter(r => {
-    if (statusFilter !== 'all' && r.status !== statusFilter) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      return (r.userName?.toLowerCase().includes(q) ||
-              r.subdivision?.toLowerCase().includes(q) ||
-              r.description?.toLowerCase().includes(q));
-    }
-    return true;
-  }).sort((a, b) => b.id - a.id);
+    return (
+      (r.userName && r.userName.toLowerCase().includes(q)) ||
+      (r.subdivision && r.subdivision.toLowerCase().includes(q)) ||
+      (r.description && r.description.toLowerCase().includes(q)) ||
+      (r.type && (r.type === 'support' ? 'тех сопровождение' : 'тех обслуживание').includes(q))
+    );
+  });
 }
 
-function onSearchInput(event, panel) {
-  searchQuery = event.target.value;
-  if (panel === 'user') renderMyRequests();
-  else renderAdminPanel();
-}
-
-function onFilterChange(panel) {
-  const statusSel = document.getElementById(panel === 'user' ? 'userStatusFilter' : 'adminStatusFilter');
-  statusFilter = statusSel?.value || 'all';
-  if (panel === 'user') renderMyRequests();
-  else renderAdminPanel();
+// Обработчик ввода поиска
+function onSearchInput(e) {
+  searchQuery = e.target.value;
+  if (isAdmin) {
+    renderAdminPanel();
+  } else {
+    renderMyRequests();
+  }
 }
 
 // ==========================================
-// КАРТОЧКИ
+// ОТОБРАЖЕНИЕ (список + детали)
 // ==========================================
-function getRequestById(id) { return requests.find(r => r.id == id); }
-function showRequestDetail(id) { selectedRequestId = id; if (isAdmin) renderAdminPanel(); else renderMyRequests(); }
-function hideRequestDetail() { selectedRequestId = null; if (isAdmin) renderAdminPanel(); else renderMyRequests(); }
+function getRequestById(id) {
+  return requests.find(r => r.id == id);
+}
 
+function showRequestDetail(id) {
+  selectedRequestId = id;
+  if (isAdmin) {
+    renderAdminPanel();
+  } else {
+    renderMyRequests();
+  }
+}
+
+function hideRequestDetail() {
+  selectedRequestId = null;
+  if (isAdmin) {
+    renderAdminPanel();
+  } else {
+    renderMyRequests();
+  }
+}
+
+// Краткая карточка для списка
 function renderRequestListItem(req) {
   const typeName = req.type === 'support' ? 'Тех.сопровождение' : 'Тех.обслуживание';
   const created = new Date(req.createdAt).toLocaleString('ru-RU');
-  const badge = { pending: ['В ожидании','pending'], in_progress: ['В работе','in_progress'], done: ['Выполнено','done'] };
+  const statusMap = {
+    pending: 'В ожидании',
+    in_progress: 'В работе',
+    done: 'Выполнено'
+  };
+  const badgeClass = {
+    pending: 'pending',
+    in_progress: 'in_progress',
+    done: 'done'
+  };
+
   return `
-    <div class="request-card" onclick="showRequestDetail(${req.id})">
+    <div class="request-card" style="cursor:pointer;" onclick="showRequestDetail(${req.id})">
       <div style="display:flex; justify-content:space-between; align-items:center;">
-        <div><strong>${typeName}</strong> <span class="badge ${badge[req.status][1]}">${badge[req.status][0]}</span></div>
+        <div>
+          <strong>${typeName}</strong>
+          <span class="badge ${badgeClass[req.status]}">${statusMap[req.status]}</span>
+        </div>
         <span style="color:#888; font-size:13px;">${created}</span>
       </div>
       <p style="margin-top:4px;">${req.userName} (${req.subdivision})</p>
-    </div>`;
+    </div>
+  `;
 }
 
+// Детальная карточка
 function renderRequestDetail(req, showAdminControls = false) {
-  const badge = { pending: ['В ожидании','pending'], in_progress: ['В работе','in_progress'], done: ['Выполнено','done'] };
+  const statusMap = {
+    pending: 'В ожидании',
+    in_progress: 'В работе',
+    done: 'Выполнено'
+  };
+  const badgeClass = {
+    pending: 'pending',
+    in_progress: 'in_progress',
+    done: 'done'
+  };
   const typeName = req.type === 'support' ? 'Тех.сопровождение' : 'Тех.обслуживание';
   const created = new Date(req.createdAt).toLocaleString('ru-RU');
-  let fileHtml = '', fileDownloadBtn = '';
+
+  let fileHtml = '';
+  let fileDownloadBtn = '';
+
   if (req.file) {
     let fileObj = req.file;
-    if (typeof fileObj === 'string') try { fileObj = JSON.parse(fileObj); } catch (e) { fileObj = null; }
-    if (fileObj?.name) {
+    if (typeof fileObj === 'string') {
+      try { fileObj = JSON.parse(fileObj); } catch (e) { fileObj = null; }
+    }
+    if (fileObj && fileObj.name) {
       fileHtml = `<p><strong>Файл:</strong> ${fileObj.name}</p>`;
       if (fileObj.data) {
-        const safeData = fileObj.data.replace(/'/g, "\\'");
-        const safeName = fileObj.name.replace(/'/g, "\\'");
-        fileDownloadBtn = `<button onclick="downloadFile('${safeData}', '${safeName}')" style="margin-top:4px; background:#4bb34b;">Скачать файл</button>`;
+        // Используем onclick с вызовом downloadFile, передавая данные в кавычках
+        fileDownloadBtn = `<button onclick="downloadFile('${fileObj.data.replace(/'/g, "\\'")}', '${fileObj.name.replace(/'/g, "\\'")}')" style="margin-top:4px; background:#4bb34b;">Скачать файл</button>`;
       }
     }
   }
+
   let datetimeHtml = req.datetime ? `<p><strong>Дата/время:</strong> ${new Date(req.datetime).toLocaleString('ru-RU')}</p>` : '';
+
   let actionsHtml = '';
   if (showAdminControls) {
-    actionsHtml += '<div class="actions">';
-    if (req.status === 'pending') actionsHtml += `<button onclick="changeStatus(${req.id}, 'in_progress')">В работу</button>`;
-    else if (req.status === 'in_progress') {
-      actionsHtml += `<button onclick="changeStatus(${req.id}, 'done')">Выполнено</button>`;
-      actionsHtml += `<button onclick="changeStatus(${req.id}, 'pending')" style="background:#ffa000;">Откатить на "В ожидании"</button>`;
-    } else if (req.status === 'done') {
-      actionsHtml += `<button onclick="changeStatus(${req.id}, 'in_progress')" style="background:#ffa000;">Откатить на "В работе"</button>`;
+    if (req.status === 'pending') {
+      actionsHtml = `<div class="actions"><button onclick="changeStatus(${req.id}, 'in_progress'); hideRequestDetail();">В работу</button></div>`;
+    } else if (req.status === 'in_progress') {
+      actionsHtml = `<div class="actions"><button onclick="changeStatus(${req.id}, 'done'); hideRequestDetail();">Выполнено</button></div>`;
     }
-    actionsHtml += '</div>';
   }
+
   return `
     <div class="panel">
       <button onclick="hideRequestDetail()" style="margin-bottom:12px; background:#888;">← Назад к списку</button>
-      <h2>${typeName} <span class="badge ${badge[req.status][1]}">${badge[req.status][0]}</span></h2>
+      <h2>${typeName} <span class="badge ${badgeClass[req.status]}">${statusMap[req.status]}</span></h2>
       <p><strong>От:</strong> ${req.userName} (${req.subdivision})</p>
       <p><strong>Создана:</strong> ${created}</p>
       ${datetimeHtml}
       <p><strong>Описание:</strong> ${req.description}</p>
-      ${fileHtml} ${fileDownloadBtn} ${actionsHtml}
-    </div>`;
+      ${fileHtml}
+      ${fileDownloadBtn}
+      ${actionsHtml}
+    </div>
+  `;
 }
 
 // ==========================================
-// РЕНДЕР СПИСКОВ
+// РЕНДЕР СПИСКОВ С ПОИСКОМ
 // ==========================================
 function renderMyRequests() {
-  if (!myRequestsList) return;
   if (selectedRequestId) {
     const req = getRequestById(selectedRequestId);
     if (req) {
@@ -363,25 +420,26 @@ function renderMyRequests() {
       return;
     }
   }
-  const myReqs = requests.filter(r => r.userId == currentUser.id);
-  const filtered = getFilteredRequests(myReqs);
 
-  let html = `
-    <div class="search-box">
-      <input type="text" id="userSearch" placeholder="Поиск..." value="${searchQuery}" oninput="onSearchInput(event, 'user')">
-      <select id="userStatusFilter" onchange="onFilterChange('user')">
-        <option value="all" ${statusFilter==='all'?'selected':''}>Все статусы</option>
-        <option value="pending" ${statusFilter==='pending'?'selected':''}>В ожидании</option>
-        <option value="in_progress" ${statusFilter==='in_progress'?'selected':''}>В работе</option>
-        <option value="done" ${statusFilter==='done'?'selected':''}>Выполнено</option>
-      </select>
-    </div>`;
-  html += filtered.length ? filtered.map(renderRequestListItem).join('') : '<p>Заявок не найдено.</p>';
+  const myReqs = requests.filter(r => r.userId == currentUser.id);
+  const filtered = filterRequests(myReqs);
+  
+  let html = '';
+  // Поле поиска
+  html += `<input type="text" placeholder="Поиск по заявкам..." value="${searchQuery}" oninput="onSearchInput(event)" style="margin-bottom:8px;">`;
+  
+  if (filtered.length === 0) {
+    html += '<p>Заявок не найдено.</p>';
+  } else {
+    html += filtered
+      .sort((a, b) => b.id - a.id)
+      .map(req => renderRequestListItem(req))
+      .join('');
+  }
   myRequestsList.innerHTML = html;
 }
 
 function renderAdminPanel() {
-  if (!adminRequestsList) return;
   if (selectedRequestId) {
     const req = getRequestById(selectedRequestId);
     if (req) {
@@ -389,35 +447,37 @@ function renderAdminPanel() {
       return;
     }
   }
-  const base = currentTab === 'active' ? requests.filter(r => r.status !== 'done') : requests.filter(r => r.status === 'done');
-  const filtered = getFilteredRequests(base);
 
-  let html = `
-    <div class="search-box">
-      <input type="text" id="adminSearch" placeholder="Поиск..." value="${searchQuery}" oninput="onSearchInput(event, 'admin')">
-      <select id="adminStatusFilter" onchange="onFilterChange('admin')">
-        <option value="all" ${statusFilter==='all'?'selected':''}>Все статусы</option>
-        <option value="pending" ${statusFilter==='pending'?'selected':''}>В ожидании</option>
-        <option value="in_progress" ${statusFilter==='in_progress'?'selected':''}>В работе</option>
-        <option value="done" ${statusFilter==='done'?'selected':''}>Выполнено</option>
-      </select>
-    </div>`;
-  html += filtered.length ? filtered.map(renderRequestListItem).join('') : '<p>Заявок нет.</p>';
+  const baseList = currentTab === 'active'
+    ? requests.filter(r => r.status !== 'done')
+    : requests.filter(r => r.status === 'done');
+  const filtered = filterRequests(baseList);
+
+  let html = '';
+  // Поле поиска
+  html += `<input type="text" placeholder="Поиск по заявкам..." value="${searchQuery}" oninput="onSearchInput(event)" style="margin-bottom:8px;">`;
+
+  if (filtered.length === 0) {
+    html += '<p>Заявок нет.</p>';
+  } else {
+    html += filtered
+      .sort((a, b) => b.id - a.id)
+      .map(req => renderRequestListItem(req))
+      .join('');
+  }
   adminRequestsList.innerHTML = html;
 }
 
-// ==========================================
-// ВКЛАДКИ И СТАТУСЫ
-// ==========================================
 function switchAdminTab(tab) {
   currentTab = tab;
   selectedRequestId = null;
-  searchQuery = '';
-  statusFilter = 'all';
-  document.getElementById('adminSearch').value = '';
-  document.getElementById('adminStatusFilter').value = 'all';
-  tabActive?.classList.toggle('active', tab === 'active');
-  tabDone?.classList.toggle('active', tab === 'done');
+  searchQuery = ''; // сбрасываем поиск при смене вкладки
+  document.querySelectorAll('.tabs button').forEach(btn => btn.classList.remove('active'));
+  if (tab === 'active') {
+    tabActive.classList.add('active');
+  } else {
+    tabDone.classList.add('active');
+  }
   renderAdminPanel();
 }
 
