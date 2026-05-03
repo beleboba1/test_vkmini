@@ -163,8 +163,8 @@ async function updateStatusOnServer(requestId, newStatus) {
 // АВТООБНОВЛЕНИЕ
 // ==========================================
 function startAutoRefresh() {
-  if (autoRefreshInterval) clearInterval(autoRefreshInterval);
-  autoRefreshInterval = setInterval(async () => {
+  //if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+ // autoRefreshInterval = setInterval(async () => {
     if (isInputFocused) {
       await loadRequestsFromServer();
       return;
@@ -172,7 +172,7 @@ function startAutoRefresh() {
     await loadRequestsFromServer();
     if (isAdmin) renderAdminPanel();
     else renderMyRequests();
-  }, 15000);
+ // }, 15000);
 }
 
 async function manualRefresh() {
