@@ -12,7 +12,7 @@ const ITEMS_PER_PAGE = 10;
 let currentUser = null;
 let isAdmin = false;
 let requests = [];
-let currentTab = 'active'; // для админа
+let currentTab = 'active';
 let selectedRequestId = null;
 
 // Поиск и фильтры
@@ -22,6 +22,9 @@ let typeFilter = 'all';
 
 // Пагинация
 let currentPage = 1;
+
+// Флаг, указывающий, что поле ввода в фокусе
+let isInputFocused = false;
 
 // DOM-элементы
 const loadingEl = document.getElementById('loading');
@@ -90,6 +93,17 @@ async function init() {
   tabDone.addEventListener('click', () => switchAdminTab('done'));
   refreshBtn.addEventListener('click', manualRefresh);
 
+  // Навешиваем отслеживание фокуса на все поля поиска и фильтров
+  document.querySelectorAll('.search-box input, .search-box select').forEach(el => {
+    el.addEventListener('focus', () => { isInputFocused = true; });
+    el.addEventListener('blur', () => {
+      isInputFocused = false;
+      // Когда фокус ушёл, применяем фильтр (если данные изменились)
+      if (isAdmin) renderAdminPanel();
+      else renderMyRequests();
+    });
+  });
+
   startAutoRefresh();
 }
 
@@ -141,11 +155,18 @@ async function updateStatusOnServer(requestId, newStatus) {
 }
 
 // ==========================================
-// АВТООБНОВЛЕНИЕ
+// АВТООБНОВЛЕНИЕ (улучшенное)
 // ==========================================
 function startAutoRefresh() {
   if (autoRefreshInterval) clearInterval(autoRefreshInterval);
   autoRefreshInterval = setInterval(async () => {
+    // Не трогаем интерфейс, пока пользователь печатает
+    if (isInputFocused) {
+      // Только подгружаем свежие данные в фоне
+      await loadRequestsFromServer();
+      return;
+    }
+    // Если фокуса нет, можно обновить список
     await loadRequestsFromServer();
     if (isAdmin) renderAdminPanel();
     else renderMyRequests();
@@ -297,8 +318,10 @@ function onSearchInput(event, panel) {
 }
 
 function onFilterChange(panel) {
-  statusFilter = document.getElementById(panel === 'user' ? 'userStatusFilter' : 'adminStatusFilter').value;
-  typeFilter = document.getElementById(panel === 'user' ? 'userTypeFilter' : 'adminTypeFilter').value;
+  const statusSel = document.getElementById(panel === 'user' ? 'userStatusFilter' : 'adminStatusFilter');
+  const typeSel = document.getElementById(panel === 'user' ? 'userTypeFilter' : 'adminTypeFilter');
+  statusFilter = statusSel.value;
+  typeFilter = typeSel.value;
   currentPage = 1;
   if (panel === 'user') renderMyRequests();
   else renderAdminPanel();
@@ -314,8 +337,7 @@ function renderPagination(totalItems, containerId, renderFn) {
     container.innerHTML = '';
     return;
   }
-  let html = '';
-  html += `<button ${currentPage === 1 ? 'disabled' : ''} onclick="goToPage(${currentPage - 1}, '${containerId}', '${renderFn}')">← Назад</button>`;
+  let html = `<button ${currentPage === 1 ? 'disabled' : ''} onclick="goToPage(${currentPage - 1}, '${containerId}', '${renderFn}')">← Назад</button>`;
   html += `<span>Стр. ${currentPage} из ${totalPages}</span>`;
   html += `<button ${currentPage === totalPages ? 'disabled' : ''} onclick="goToPage(${currentPage + 1}, '${containerId}', '${renderFn}')">Вперёд →</button>`;
   container.innerHTML = html;
@@ -426,6 +448,14 @@ function renderRequestDetail(req, showAdminControls = false) {
 // РЕНДЕР СПИСКОВ С ПАГИНАЦИЕЙ
 // ==========================================
 function renderMyRequests() {
+  // Синхронизируем значения поисковых полей с переменными
+  const searchField = document.getElementById('userSearch');
+  if (searchField) searchQuery = searchField.value;
+  const statusField = document.getElementById('userStatusFilter');
+  if (statusField) statusFilter = statusField.value;
+  const typeField = document.getElementById('userTypeFilter');
+  if (typeField) typeFilter = typeField.value;
+
   if (selectedRequestId) {
     const req = getRequestById(selectedRequestId);
     if (req) {
@@ -447,6 +477,14 @@ function renderMyRequests() {
 }
 
 function renderAdminPanel() {
+  // Синхронизируем значения поисковых полей с переменными
+  const searchField = document.getElementById('adminSearch');
+  if (searchField) searchQuery = searchField.value;
+  const statusField = document.getElementById('adminStatusFilter');
+  if (statusField) statusFilter = statusField.value;
+  const typeField = document.getElementById('adminTypeFilter');
+  if (typeField) typeFilter = typeField.value;
+
   if (selectedRequestId) {
     const req = getRequestById(selectedRequestId);
     if (req) {
