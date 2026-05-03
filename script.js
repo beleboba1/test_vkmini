@@ -4,23 +4,26 @@
 const ADMIN_ID = 372708944;          // Твой реальный VK ID
 const APP_ID = 54575499;              // ID мини-приложения VK
 const API_URL = 'https://script.google.com/macros/s/AKfycbweogVun2KupPEbuq7WLZpQa0gUIwbrMKlIpNF-PvycDVLubHNaNHIubGyBL4Ans_uM4A/exec'; // Твой URL
-const ITEMS_PER_PAGE = 10;
 
+// ==========================================
+// ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
+// ==========================================
 let currentUser, isAdmin, requests = [], currentTab = 'active',
     selectedRequestId = null, searchQuery = '', statusFilter = 'all',
-    typeFilter = 'all', currentPage = 1;
+    currentPage = 1;
 
-// DOM-элементы получим внутри init()
+// DOM-элементы
 let loadingEl, userPanel, adminPanel, typeSelect, datetimeBlock,
     requestForm, submitBtn, myRequestsList, adminRequestsList,
     tabActive, tabDone, refreshBtn, refreshIcon, fileInput, fileInfo,
     notification, notificationText;
 
+let autoRefreshInterval = null;
+
 // ==========================================
 // ИНИЦИАЛИЗАЦИЯ
 // ==========================================
 async function init() {
-  // Получаем элементы
   loadingEl = document.getElementById('loading');
   userPanel = document.getElementById('userPanel');
   adminPanel = document.getElementById('adminPanel');
@@ -41,12 +44,10 @@ async function init() {
 
   console.log('init стартовал');
 
-  // VK Bridge – обязательный init
   if (typeof vkBridge !== 'undefined') {
     try { await vkBridge.send('VKWebAppInit'); } catch (e) {}
   }
 
-  // Пользователь
   if (typeof vkBridge === 'undefined') {
     currentUser = { id: 0, first_name: 'Тест', last_name: 'Тестов' };
     isAdmin = false;
@@ -64,7 +65,6 @@ async function init() {
     }
   }
 
-  // Загружаем заявки с сервера
   await loadRequestsFromServer();
   loadingEl.classList.add('hidden');
 
@@ -76,7 +76,6 @@ async function init() {
     renderMyRequests();
   }
 
-  // Обработчики
   typeSelect?.addEventListener('change', toggleDatetime);
   fileInput?.addEventListener('change', handleFile);
   requestForm?.addEventListener('submit', handleFormSubmit);
@@ -84,10 +83,7 @@ async function init() {
   tabDone?.addEventListener('click', () => switchAdminTab('done'));
   refreshBtn?.addEventListener('click', manualRefresh);
 
-  // При фокусе на поиске не даём автообновлению перерисовать
-  document.querySelectorAll('.search-box input, .search-box select').forEach(el => {
-    el.addEventListener('focus', () => {});
-  });
+  startAutoRefresh();
 }
 
 // ==========================================
@@ -105,16 +101,13 @@ async function loadRequestsFromServer() {
 
 async function createRequestOnServer(newRequest) {
   try {
-    console.log('Отправляю на сервер:', newRequest);
     const response = await fetch(API_URL, {
       method: 'POST',
       body: JSON.stringify(newRequest)
     });
-    console.log('Статус ответа:', response.status);
     if (!response.ok) throw new Error('Ошибка сети');
     const result = await response.json();
-    if (!result.success) throw new Error('Сервер вернул ошибку: ' + JSON.stringify(result));
-    console.log('Успешно создано, ID:', result.id);
+    if (!result.success) throw new Error('Сервер вернул ошибку');
     return result.id;
   } catch (e) {
     console.error('Ошибка создания заявки:', e);
@@ -141,14 +134,24 @@ async function updateStatusOnServer(requestId, newStatus) {
 }
 
 // ==========================================
-// РУЧНОЕ ОБНОВЛЕНИЕ
+// АВТООБНОВЛЕНИЕ
 // ==========================================
+function startAutoRefresh() {
+  if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+  autoRefreshInterval = setInterval(async () => {
+    await loadRequestsFromServer();
+    if (isAdmin) renderAdminPanel();
+    else renderMyRequests();
+  }, 15000);
+}
+
 async function manualRefresh() {
   if (!refreshIcon || !refreshBtn) return;
   refreshIcon.textContent = '⏳';
   refreshBtn.disabled = true;
   await loadRequestsFromServer();
-  if (isAdmin) renderAdminPanel(); else renderMyRequests();
+  if (isAdmin) renderAdminPanel();
+  else renderMyRequests();
   refreshIcon.textContent = '🔄';
   refreshBtn.disabled = false;
 }
@@ -162,9 +165,7 @@ function showNotification(msg) {
   notification.classList.remove('hidden');
   setTimeout(hideNotification, 5000);
 }
-function hideNotification() {
-  notification?.classList.add('hidden');
-}
+function hideNotification() { notification?.classList.add('hidden'); }
 
 // ==========================================
 // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -177,6 +178,7 @@ function handleFile() {
   const file = fileInput.files[0];
   fileInfo.textContent = file ? `Файл: ${file.name} (${(file.size / 1024).toFixed(1)} КБ)` : '';
 }
+
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -185,6 +187,7 @@ function fileToBase64(file) {
     reader.readAsDataURL(file);
   });
 }
+
 function downloadFile(base64Data, fileName) {
   const link = document.createElement('a');
   link.href = base64Data;
@@ -262,7 +265,6 @@ async function handleFormSubmit(e) {
 function getFilteredRequests(list) {
   return list.filter(r => {
     if (statusFilter !== 'all' && r.status !== statusFilter) return false;
-    if (typeFilter !== 'all' && r.type !== typeFilter) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return (r.userName?.toLowerCase().includes(q) ||
@@ -275,45 +277,15 @@ function getFilteredRequests(list) {
 
 function onSearchInput(event, panel) {
   searchQuery = event.target.value;
-  currentPage = 1;
   if (panel === 'user') renderMyRequests();
   else renderAdminPanel();
 }
 
 function onFilterChange(panel) {
   const statusSel = document.getElementById(panel === 'user' ? 'userStatusFilter' : 'adminStatusFilter');
-  const typeSel = document.getElementById(panel === 'user' ? 'userTypeFilter' : 'adminTypeFilter');
   statusFilter = statusSel?.value || 'all';
-  typeFilter = typeSel?.value || 'all';
-  currentPage = 1;
   if (panel === 'user') renderMyRequests();
   else renderAdminPanel();
-}
-
-// ==========================================
-// ПАГИНАЦИЯ
-// ==========================================
-function renderPagination(totalItems, containerId, renderFn) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
-  if (totalPages <= 1) { container.innerHTML = ''; return; }
-  container.innerHTML = `
-    <button ${currentPage === 1 ? 'disabled' : ''} onclick="goToPage(${currentPage - 1}, '${containerId}', '${renderFn}')">← Назад</button>
-    <span>Стр. ${currentPage} из ${totalPages}</span>
-    <button ${currentPage === totalPages ? 'disabled' : ''} onclick="goToPage(${currentPage + 1}, '${containerId}', '${renderFn}')">Вперёд →</button>
-  `;
-}
-
-function goToPage(page, containerId, renderFn) {
-  currentPage = page;
-  if (renderFn === 'renderMyRequests') renderMyRequests();
-  else renderAdminPanel();
-}
-
-function paginate(list) {
-  const start = (currentPage - 1) * ITEMS_PER_PAGE;
-  return list.slice(start, start + ITEMS_PER_PAGE);
 }
 
 // ==========================================
@@ -380,7 +352,7 @@ function renderRequestDetail(req, showAdminControls = false) {
 }
 
 // ==========================================
-// РЕНДЕР СПИСКОВ (С ПОИСКОМ)
+// РЕНДЕР СПИСКОВ
 // ==========================================
 function renderMyRequests() {
   if (!myRequestsList) return;
@@ -388,13 +360,11 @@ function renderMyRequests() {
     const req = getRequestById(selectedRequestId);
     if (req) {
       myRequestsList.innerHTML = renderRequestDetail(req, false);
-      document.getElementById('userPagination').innerHTML = '';
       return;
     }
   }
   const myReqs = requests.filter(r => r.userId == currentUser.id);
   const filtered = getFilteredRequests(myReqs);
-  const paginated = paginate(filtered);
 
   let html = `
     <div class="search-box">
@@ -405,15 +375,9 @@ function renderMyRequests() {
         <option value="in_progress" ${statusFilter==='in_progress'?'selected':''}>В работе</option>
         <option value="done" ${statusFilter==='done'?'selected':''}>Выполнено</option>
       </select>
-      <select id="userTypeFilter" onchange="onFilterChange('user')">
-        <option value="all" ${typeFilter==='all'?'selected':''}>Все типы</option>
-        <option value="maintenance" ${typeFilter==='maintenance'?'selected':''}>Тех.обслуживание</option>
-        <option value="support" ${typeFilter==='support'?'selected':''}>Тех.сопровождение</option>
-      </select>
     </div>`;
-  html += paginated.length ? paginated.map(renderRequestListItem).join('') : '<p>Заявок не найдено.</p>';
+  html += filtered.length ? filtered.map(renderRequestListItem).join('') : '<p>Заявок не найдено.</p>';
   myRequestsList.innerHTML = html;
-  renderPagination(filtered.length, 'userPagination', 'renderMyRequests');
 }
 
 function renderAdminPanel() {
@@ -422,13 +386,11 @@ function renderAdminPanel() {
     const req = getRequestById(selectedRequestId);
     if (req) {
       adminRequestsList.innerHTML = renderRequestDetail(req, true);
-      document.getElementById('adminPagination').innerHTML = '';
       return;
     }
   }
   const base = currentTab === 'active' ? requests.filter(r => r.status !== 'done') : requests.filter(r => r.status === 'done');
   const filtered = getFilteredRequests(base);
-  const paginated = paginate(filtered);
 
   let html = `
     <div class="search-box">
@@ -439,15 +401,9 @@ function renderAdminPanel() {
         <option value="in_progress" ${statusFilter==='in_progress'?'selected':''}>В работе</option>
         <option value="done" ${statusFilter==='done'?'selected':''}>Выполнено</option>
       </select>
-      <select id="adminTypeFilter" onchange="onFilterChange('admin')">
-        <option value="all" ${typeFilter==='all'?'selected':''}>Все типы</option>
-        <option value="maintenance" ${typeFilter==='maintenance'?'selected':''}>Тех.обслуживание</option>
-        <option value="support" ${typeFilter==='support'?'selected':''}>Тех.сопровождение</option>
-      </select>
     </div>`;
-  html += paginated.length ? paginated.map(renderRequestListItem).join('') : '<p>Заявок нет.</p>';
+  html += filtered.length ? filtered.map(renderRequestListItem).join('') : '<p>Заявок нет.</p>';
   adminRequestsList.innerHTML = html;
-  renderPagination(filtered.length, 'adminPagination', 'renderAdminPanel');
 }
 
 // ==========================================
@@ -458,14 +414,10 @@ function switchAdminTab(tab) {
   selectedRequestId = null;
   searchQuery = '';
   statusFilter = 'all';
-  typeFilter = 'all';
-  currentPage = 1;
-  tabActive?.classList.toggle('active', tab === 'active');
-  tabDone?.classList.toggle('active', tab === 'done');
-  // очищаем поля (если они существуют)
   document.getElementById('adminSearch').value = '';
   document.getElementById('adminStatusFilter').value = 'all';
-  document.getElementById('adminTypeFilter').value = 'all';
+  tabActive?.classList.toggle('active', tab === 'active');
+  tabDone?.classList.toggle('active', tab === 'done');
   renderAdminPanel();
 }
 
