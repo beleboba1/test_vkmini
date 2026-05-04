@@ -32,6 +32,25 @@ const fileInfo = document.getElementById('fileInfo');
 // Таймер автообновления
 let autoRefreshInterval = null;
 
+function onUserSearchInput(e) {
+  searchQuery = e.target.value;
+  renderMyRequests();
+}
+function onUserFilterChange() {
+  const sel = document.getElementById('userStatusFilter');
+  statusFilter = sel ? sel.value : 'all';
+  renderMyRequests();
+}
+function onAdminSearchInput(e) {
+  searchQuery = e.target.value;
+  renderAdminPanel();
+}
+function onAdminFilterChange() {
+  const sel = document.getElementById('adminStatusFilter');
+  statusFilter = sel ? sel.value : 'all';
+  renderAdminPanel();
+}
+
 // ==========================================
 // ИНИЦИАЛИЗАЦИЯ
 // ==========================================
@@ -443,6 +462,7 @@ function renderRequestDetail(req, showAdminControls = false) {
 // РЕНДЕР СПИСКОВ С ПОИСКОМ
 // ==========================================
 function renderMyRequests() {
+  if (!myRequestsList) return;
   if (selectedRequestId) {
     const req = getRequestById(selectedRequestId);
     if (req) {
@@ -452,24 +472,29 @@ function renderMyRequests() {
   }
 
   const myReqs = requests.filter(r => r.userId == currentUser.id);
-  const filtered = filterRequests(myReqs);
-  
-  let html = '';
-  // Поле поиска
-  html += `<input type="text" placeholder="Поиск по заявкам..." value="${searchQuery}" oninput="onSearchInput(event)" style="margin-bottom:8px;">`;
-  
+  // Учитываем сохранённые searchQuery и statusFilter
+  let filtered = myReqs.filter(r => {
+    if (statusFilter !== 'all' && r.status !== statusFilter) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      if (!r.userName?.toLowerCase().includes(q) &&
+          !r.subdivision?.toLowerCase().includes(q) &&
+          !r.description?.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+
+  filtered.sort((a, b) => b.id - a.id);
+
   if (filtered.length === 0) {
-    html += '<p>Заявок не найдено.</p>';
+    myRequestsList.innerHTML = '<p>Заявок не найдено.</p>';
   } else {
-    html += filtered
-      .sort((a, b) => b.id - a.id)
-      .map(req => renderRequestListItem(req))
-      .join('');
+    myRequestsList.innerHTML = filtered.map(req => renderRequestListItem(req)).join('');
   }
-  myRequestsList.innerHTML = html;
 }
 
 function renderAdminPanel() {
+  if (!adminRequestsList) return;
   if (selectedRequestId) {
     const req = getRequestById(selectedRequestId);
     if (req) {
@@ -478,36 +503,42 @@ function renderAdminPanel() {
     }
   }
 
-  const baseList = currentTab === 'active'
+  const base = currentTab === 'active'
     ? requests.filter(r => r.status !== 'done')
     : requests.filter(r => r.status === 'done');
-  const filtered = filterRequests(baseList);
 
-  let html = '';
-  // Поле поиска
-  html += `<input type="text" placeholder="Поиск по заявкам..." value="${searchQuery}" oninput="onSearchInput(event)" style="margin-bottom:8px;">`;
+  let filtered = base.filter(r => {
+    if (statusFilter !== 'all' && r.status !== statusFilter) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      if (!r.userName?.toLowerCase().includes(q) &&
+          !r.subdivision?.toLowerCase().includes(q) &&
+          !r.description?.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+
+  filtered.sort((a, b) => b.id - a.id);
 
   if (filtered.length === 0) {
-    html += '<p>Заявок нет.</p>';
+    adminRequestsList.innerHTML = '<p>Заявок нет.</p>';
   } else {
-    html += filtered
-      .sort((a, b) => b.id - a.id)
-      .map(req => renderRequestListItem(req))
-      .join('');
+    adminRequestsList.innerHTML = filtered.map(req => renderRequestListItem(req)).join('');
   }
-  adminRequestsList.innerHTML = html;
 }
 
 function switchAdminTab(tab) {
   currentTab = tab;
   selectedRequestId = null;
-  searchQuery = ''; // сбрасываем поиск при смене вкладки
-  document.querySelectorAll('.tabs button').forEach(btn => btn.classList.remove('active'));
-  if (tab === 'active') {
-    tabActive.classList.add('active');
-  } else {
-    tabDone.classList.add('active');
-  }
+  searchQuery = '';
+  statusFilter = 'all';
+  // Очищаем статические поля (если они существуют)
+  const adminSearch = document.getElementById('adminSearch');
+  const adminStatus = document.getElementById('adminStatusFilter');
+  if (adminSearch) adminSearch.value = '';
+  if (adminStatus) adminStatus.value = 'all';
+  tabActive.classList.toggle('active', tab === 'active');
+  tabDone.classList.toggle('active', tab === 'done');
   renderAdminPanel();
 }
 
