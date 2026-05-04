@@ -157,7 +157,7 @@ function startAutoRefresh() {
     } else {
       renderMyRequests();
     }
-  }, 10000); // каждые 10 секунд
+  }, 6000); // каждые 6 секунд
 }
 
 // Остановка автообновления при закрытии (не обязательно, но хорошо бы)
@@ -190,13 +190,29 @@ function fileToBase64(file) {
 
 // Надёжное скачивание файла
 function downloadFile(base64Data, fileName) {
-  // Создаём ссылку, указываем download, имитируем клик
+  // Преобразуем base64 в Blob (работает даже в мобильных WebView)
+  const parts = base64Data.split(',');
+  if (parts.length !== 2) return;
+  const mime = parts[0].split(':')[1].split(';')[0];
+  const byteStr = atob(parts[1]);
+  const ab = new ArrayBuffer(byteStr.length);
+  const ia = new Uint8Array(ab);
+  for (let i = 0; i < byteStr.length; i++) {
+    ia[i] = byteStr.charCodeAt(i);
+  }
+  const blob = new Blob([ab], { type: mime });
+  const url = URL.createObjectURL(blob);
+
+  // Создаём невидимую ссылку, кликаем и сразу убираем
   const link = document.createElement('a');
-  link.href = base64Data;
+  link.href = url;
   link.download = fileName;
   document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
+  setTimeout(() => {
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, 100);
 }
 
 // Отправка заявки
