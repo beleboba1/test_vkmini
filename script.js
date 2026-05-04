@@ -14,6 +14,7 @@ let requests = [];
 let currentTab = 'active';
 let selectedRequestId = null;
 let searchQuery = '';                // строка поиска
+let statusFilter = 'all';            // фильтр по статусу (all / pending / in_progress / done)
 
 // DOM-элементы
 const loadingEl = document.getElementById('loading');
@@ -32,19 +33,25 @@ const fileInfo = document.getElementById('fileInfo');
 // Таймер автообновления
 let autoRefreshInterval = null;
 
+// ==========================================
+// ОБРАБОТЧИКИ СТАТИЧЕСКИХ ПОЛЕЙ ПОИСКА / ФИЛЬТРА
+// ==========================================
 function onUserSearchInput(e) {
   searchQuery = e.target.value;
   renderMyRequests();
 }
+
 function onUserFilterChange() {
   const sel = document.getElementById('userStatusFilter');
   statusFilter = sel ? sel.value : 'all';
   renderMyRequests();
 }
+
 function onAdminSearchInput(e) {
   searchQuery = e.target.value;
   renderAdminPanel();
 }
+
 function onAdminFilterChange() {
   const sel = document.getElementById('adminStatusFilter');
   statusFilter = sel ? sel.value : 'all';
@@ -107,7 +114,7 @@ async function init() {
   tabActive.addEventListener('click', () => switchAdminTab('active'));
   tabDone.addEventListener('click', () => switchAdminTab('done'));
 
-  // Запускаем автообновление каждые 10 секунд
+  // Запускаем автообновление каждые 6 секунд
   startAutoRefresh();
   console.log('7. готово');
 }
@@ -168,18 +175,16 @@ async function updateStatusOnServer(requestId, newStatus) {
 function startAutoRefresh() {
   if (autoRefreshInterval) clearInterval(autoRefreshInterval);
   autoRefreshInterval = setInterval(async () => {
-    // Не обновляем, если пользователь сейчас заполняет форму или открыта детальная карточка? 
-    // Лучше обновлять в любом случае, но не сбрасывать интерфейс.
     await loadRequestsFromServer();
     if (isAdmin) {
       renderAdminPanel();
     } else {
       renderMyRequests();
     }
-  }, 3000); // каждые 6 секунд
+  }, 6000); // каждые 6 секунд
 }
 
-// Остановка автообновления при закрытии (не обязательно, но хорошо бы)
+// Остановка автообновления при закрытии
 window.addEventListener('beforeunload', () => {
   if (autoRefreshInterval) clearInterval(autoRefreshInterval);
 });
@@ -207,9 +212,8 @@ function fileToBase64(file) {
   });
 }
 
-// Надёжное скачивание файла
+// Надёжное скачивание / открытие файла
 function downloadFile(base64Data, fileName) {
-  // Преобразуем base64 в Blob (для корректной работы на всех устройствах)
   const parts = base64Data.split(',');
   if (parts.length !== 2) return;
   const mime = parts[0].split(':')[1].split(';')[0];
@@ -225,17 +229,13 @@ function downloadFile(base64Data, fileName) {
   const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   if (isMobile) {
-    // На телефоне открываем в новой вкладке (браузер сам покажет PDF/изображение)
     window.open(blobUrl, '_blank');
-    // Подсказка однократно
     if (!localStorage.getItem('saveHintShown')) {
       alert('💡 Файл открыт в браузере.\nДля сохранения используйте меню «Поделиться» → «Сохранить в файлы» или долгое нажатие на файл.');
       localStorage.setItem('saveHintShown', '1');
     }
-    // Удаляем blob через минуту
     setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
   } else {
-    // На ПК — автоматическое скачивание
     const link = document.createElement('a');
     link.href = blobUrl;
     link.download = fileName;
@@ -321,32 +321,6 @@ async function handleFormSubmit(e) {
 }
 
 // ==========================================
-// ПОИСК И ФИЛЬТРАЦИЯ
-// ==========================================
-function filterRequests(list) {
-  if (!searchQuery.trim()) return list;
-  const q = searchQuery.toLowerCase();
-  return list.filter(r => {
-    return (
-      (r.userName && r.userName.toLowerCase().includes(q)) ||
-      (r.subdivision && r.subdivision.toLowerCase().includes(q)) ||
-      (r.description && r.description.toLowerCase().includes(q)) ||
-      (r.type && (r.type === 'support' ? 'тех сопровождение' : 'тех обслуживание').includes(q))
-    );
-  });
-}
-
-// Обработчик ввода поиска
-function onSearchInput(e) {
-  searchQuery = e.target.value;
-  if (isAdmin) {
-    renderAdminPanel();
-  } else {
-    renderMyRequests();
-  }
-}
-
-// ==========================================
 // ОТОБРАЖЕНИЕ (список + детали)
 // ==========================================
 function getRequestById(id) {
@@ -426,7 +400,6 @@ function renderRequestDetail(req, showAdminControls = false) {
     if (fileObj && fileObj.name) {
       fileHtml = `<p><strong>Файл:</strong> ${fileObj.name}</p>`;
       if (fileObj.data) {
-        // Используем onclick с вызовом downloadFile, передавая данные в кавычках
         fileDownloadBtn = `<button onclick="downloadFile('${fileObj.data.replace(/'/g, "\\'")}', '${fileObj.name.replace(/'/g, "\\'")}')" style="margin-top:4px; background:#4bb34b;">Скачать файл</button>`;
       }
     }
@@ -459,7 +432,7 @@ function renderRequestDetail(req, showAdminControls = false) {
 }
 
 // ==========================================
-// РЕНДЕР СПИСКОВ С ПОИСКОМ
+// РЕНДЕР СПИСКОВ (БЕЗ ПЕРЕРИСОВКИ ПОЛЕЙ ПОИСКА)
 // ==========================================
 function renderMyRequests() {
   if (!myRequestsList) return;
@@ -472,7 +445,6 @@ function renderMyRequests() {
   }
 
   const myReqs = requests.filter(r => r.userId == currentUser.id);
-  // Учитываем сохранённые searchQuery и statusFilter
   let filtered = myReqs.filter(r => {
     if (statusFilter !== 'all' && r.status !== statusFilter) return false;
     if (searchQuery.trim()) {
