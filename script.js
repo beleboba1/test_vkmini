@@ -190,29 +190,45 @@ function fileToBase64(file) {
 
 // Надёжное скачивание файла
 function downloadFile(base64Data, fileName) {
-  // Преобразуем base64 в Blob (работает даже в мобильных WebView)
-  const parts = base64Data.split(',');
-  if (parts.length !== 2) return;
-  const mime = parts[0].split(':')[1].split(';')[0];
-  const byteStr = atob(parts[1]);
-  const ab = new ArrayBuffer(byteStr.length);
-  const ia = new Uint8Array(ab);
-  for (let i = 0; i < byteStr.length; i++) {
-    ia[i] = byteStr.charCodeAt(i);
-  }
-  const blob = new Blob([ab], { type: mime });
-  const url = URL.createObjectURL(blob);
+  const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-  // Создаём невидимую ссылку, кликаем и сразу убираем
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  setTimeout(() => {
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }, 100);
+  if (isMobile) {
+    // На телефоне открываем во внешнем браузере
+    if (typeof vkBridge !== 'undefined') {
+      vkBridge.send('VKWebAppOpenExternalLink', { url: base64Data })
+        .catch(() => window.open(base64Data, '_blank'));
+    } else {
+      window.open(base64Data, '_blank');
+    }
+
+    // Показываем подсказку один раз
+    if (!localStorage.getItem('saveHintShown')) {
+      alert('💡 Файл открыт в браузере.\nДля сохранения используйте меню браузера (поделиться / сохранить).');
+      localStorage.setItem('saveHintShown', '1');
+    }
+  } else {
+    // На ПК – скачивание файла (как прежде)
+    const parts = base64Data.split(',');
+    if (parts.length !== 2) return;
+    const mime = parts[0].split(':')[1].split(';')[0];
+    const byteStr = atob(parts[1]);
+    const ab = new ArrayBuffer(byteStr.length);
+    const ia = new Uint8Array(ab);
+    for (let i = 0; i < byteStr.length; i++) {
+      ia[i] = byteStr.charCodeAt(i);
+    }
+    const blob = new Blob([ab], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => {
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }, 100);
+  }
 }
 
 // Отправка заявки
